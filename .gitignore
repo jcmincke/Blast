@@ -1,0 +1,58 @@
+# OSX
+.DS_Store
+._.DS_Store
+
+# LaTex
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.dep
+*.src
+
+# The Rest
+.docker-sandbox/
+dist/
+/.project
+*.lkshs
+*.lkshw
+*.un~
+cabal.sandbox.config
+.hsenv
+.shake.database
+.test-results
+prod/**/test/**/*.aux
+prod/**/test/**/*.log
+prod/**/test/**/*.pdf
+prod/**/test/**/*.synctex.gz
+prod/**/test/**/*.toc
+/doc/.build/
+/doc/.build.database
+.stack-work/
+dist-stack/
+/artifacts/
+system-tests-outputs/*
+/tools/bin/build-info/build-info.json
+*.tix
+/.local-bin/
+/code-coverage/
+/data/build-report.html
+tests/gold-standard/test-cases/
+tests/gold-standard/sensitivity-plots/
+tests/gold-standard/simulation-results/
+tests/gold-standard/Schema/MaterializedViews/
+tools/simulate-tool/example/*.csv
+tools/simulate-tool/example/*.gnuplot
+tools/simulate-tool/example/*.bin
+tools/simulate-tool/example/provided.*
+tools/simulate-tool/example/resulting.*
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Vim
+*.swp
