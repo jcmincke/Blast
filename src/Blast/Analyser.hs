@@ -35,32 +35,30 @@ getRemoteClosure n m =
   case M.lookup n m of
     Just info ->  case view remoteClosure info of
                   Just cs -> cs
-                  Nothing -> error "remote closure does not exist"
+                  Nothing -> error ("remote closure does not exist for " ++ show n)
     Nothing -> error $ show ("closure not found for "::String, n)
-
-
 
 increaseRef :: Int -> InfoMap -> InfoMap
 increaseRef n m =
   case M.lookup n m of
-  Just info@(Info old _) -> M.insert n (set nbRef (old+1) info) m
+  Just info@(Info old _ _ _ _) -> M.insert n (set nbRef (old+1) info) m
   Nothing -> error $ show ("referenced before being visited"::String, n)
 
 setRemoteClosure :: Int -> RemoteClosure -> InfoMap -> InfoMap
 setRemoteClosure n cs m =
   case M.lookup n m of
-  Just info@(Info _ Nothing) -> M.insert n (set remoteClosure (Just cs) info) m
-  Just (Info _ _) -> m
+  Just info@(Info _ Nothing _ _ _) -> M.insert n (set remoteClosure (Just cs) info) m
+  Just (Info _ _ _ _ _) -> m
   Nothing -> error "set closure before being visited"
 
 wasVisited :: Int -> InfoMap -> Bool
 wasVisited n m = M.member n m
 
-visitExp :: Int -> InfoMap -> InfoMap
-visitExp n m =
+visitExp :: Int -> Cacher -> UnCacher -> IsCached -> InfoMap -> InfoMap
+visitExp n cacher unCacher isCached m =
   case M.lookup n m of
-  Just (Info c cs) -> M.insert n (Info c cs) m
-  Nothing -> M.insert n (Info 0 Nothing) m
+  Just (Info n cs _ _ _) -> error ("exp already visited: " ++ show n)
+  Nothing -> M.insert n (Info 0 Nothing cacher unCacher isCached) m
 
 increaseRef' n = do
   liftIO $ print ("reference: ", n)
@@ -69,16 +67,17 @@ increaseRef' n = do
 
 setRemoteClosure' n cs = do
   m <- get
+  liftIO $ print ("set closure for ", n)
   put (setRemoteClosure n cs m)
 
 wasVisited' n = do
   m <- get
   return $ wasVisited n m
 
-visitExp' n = do
+visitExp' n cacher unCacher isCached = do
   liftIO $ print ("visit: ", n)
   m <- get
-  put $ visitExp n m
+  put $ visitExp n cacher unCacher isCached m
 
 
 
@@ -128,6 +127,27 @@ wrapClosure keyc keya keyb f =
         let bbsM = if shouldReturn then Just $ S.encode brdd else Nothing
         return (ExecRes bbsM, vault')
 
+
+
+
+wrapJoinClosure :: forall a b . (S.Serialize a, S.Serialize b) =>
+                   V.Key (Rdd a) -> V.Key (Rdd b) ->  V.Key (Rdd (a, b)) -> RemoteClosure
+wrapJoinClosure keya keyb keyab =
+    proc
+    where
+    proc vault abs bbs (ResultDescriptor shouldReturn shouldCache) =
+      either (\l -> (l, vault)) id r
+      where
+      r = do
+        (Rdd al) <- getVal CachedArg vault keya abs
+        (Rdd bl) <- getVal CachedArg vault keyb bbs
+        let r = Rdd $ do  a <- al
+                          b <- bl
+                          return (a, b)
+        let vault' = if shouldCache then V.insert keyab r vault else vault
+        let rbsM = if shouldReturn then Just $ S.encode r else Nothing
+        return (ExecRes rbsM, vault')
+
 getVal :: (S.Serialize a) =>  CachedValType -> V.Vault -> V.Key a -> RemoteValue BS.ByteString -> Either (RemoteClosureResult b) a
 getVal _ _ _ (RemoteValue bs) =
   case S.decode bs of
@@ -155,17 +175,33 @@ getLocalIndex :: LocalExp a -> Int
 getLocalIndex (Fold i _ _ _ _) = i
 getLocalIndex (ConstLocal i _ _) = i
 getLocalIndex (Collect i _ _) = i
-getLocalIndex (Apply i _ _ _) = i
+--getLocalIndex (Apply i _ _ _) = i
+getLocalIndex (FromAppl i _ _) = i
 getLocalIndex (FMap i _ _ _) = i
 
 getLocalVaultKey :: LocalExp a -> V.Key a
 getLocalVaultKey (Fold _ k _ _ _) = k
 getLocalVaultKey (ConstLocal _ k _) = k
 getLocalVaultKey (Collect _ k _) = k
-getLocalVaultKey (Apply _ k _ _) = k
+--getLocalVaultKey (Apply _ k _ _) = k
+getLocalVaultKey (FromAppl _ k _) = k
 getLocalVaultKey (FMap _ k _ _) = k
 
 
+makeCacher :: (S.Serialize a) => V.Key a -> BS.ByteString -> V.Vault -> V.Vault
+makeCacher key bs vault =
+  case S.decode bs of
+  Left e -> error $ show e
+  Right a -> V.insert key a vault
+
+makeUnCacher :: V.Key a -> V.Vault -> V.Vault
+makeUnCacher key vault = V.delete key vault
+
+makeIsCached :: V.Key a -> V.Vault -> Bool
+makeIsCached key vault =
+  case V.lookup key vault of
+  Just _ -> True
+  Nothing -> False
 
 analyseRemote :: (MonadIO m) => RemoteExp a -> StateT InfoMap m ()
 analyseRemote (Trans n keyb a cs@(Pure _)) =
@@ -175,7 +211,7 @@ analyseRemote (Trans n keyb a cs@(Pure _)) =
     liftIO $ print ("create pure remote closure"::String, n)
     let keya = getRemoteVaultKey a
     rcs <- mkRemoteClosure keya keyb cs
-    visitExp' n
+    visitExp' n (makeCacher keyb) (makeUnCacher keyb) (makeIsCached keyb)
     setRemoteClosure' n rcs
 
 analyseRemote (Trans n keyb a cs@(Closure ce _)) =
@@ -187,42 +223,56 @@ analyseRemote (Trans n keyb a cs@(Closure ce _)) =
     liftIO $ print ("create closure remote closure"::String, n)
     let keya = getRemoteVaultKey a
     rcs <- mkRemoteClosure keya keyb cs
-    visitExp' n
+    visitExp' n (makeCacher keyb) (makeUnCacher keyb) (makeIsCached keyb)
     setRemoteClosure' n rcs
 
-analyseRemote e@(ConstRemote n _ _) = visitExp' n
+analyseRemote e@(ConstRemote n key _) =
+  unlessM (wasVisited' n) $ visitExp' n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
-analyseRemote e@(Join n _ a b) =
+
+analyseRemote e@(Join n keyab a b) =
   unlessM (wasVisited' n) $ do
     analyseRemote a
     analyseRemote b
     increaseRef' (getRemoteIndex a)
     increaseRef' (getRemoteIndex b)
-    visitExp' n
+    visitExp' n (makeCacher keyab) (makeUnCacher keyab) (makeIsCached keyab)
+    let keya = getRemoteVaultKey a
+    let keyb = getRemoteVaultKey b
+    let rcs = wrapJoinClosure keya keyb keyab
+    setRemoteClosure' n rcs
 
 analyseLocal :: (MonadIO m) => LocalExp a -> StateT InfoMap m ()
-analyseLocal (Fold n lc e f z) =
+analyseLocal (Fold n key e f z) =
   unlessM (wasVisited' n) $ do
     analyseRemote e
     increaseRef' (getRemoteIndex e)
-    visitExp' n
+    visitExp' n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
-analyseLocal(ConstLocal n _ _) = visitExp' n
+analyseLocal(ConstLocal n key _) =
+  unlessM (wasVisited' n) $ visitExp' n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
-analyseLocal (Collect n lc e) =
+analyseLocal (Collect n key e) =
   unlessM (wasVisited' n) $ do
     analyseRemote e
     increaseRef' (getRemoteIndex e)
-    visitExp' n
+    visitExp' n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
-analyseLocal (Apply n lc f e) =
+analyseLocal (FromAppl n key e) =
   unlessM (wasVisited' n) $ do
-    analyseLocal f
-    analyseLocal e
-    visitExp' n
+    analyseAppl e
+    visitExp' n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
-analyseLocal (FMap n lc f e) =
+analyseLocal (FMap n key f e) =
   unlessM (wasVisited' n) $ do
     analyseLocal e
-    visitExp' n
+    visitExp' n (makeCacher key) (makeUnCacher key) (makeIsCached key)
+
+
+analyseAppl :: (MonadIO m) => ApplExp a -> StateT InfoMap m ()
+analyseAppl (Apply' f e) = do
+  analyseAppl f
+  analyseLocal e
+
+analyseAppl (ConstAppl _) = return ()
 

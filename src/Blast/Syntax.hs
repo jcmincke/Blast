@@ -57,7 +57,7 @@ sfilter e p = do
   where
   cs = fmap (\(a, bool) -> if bool then Just a else Nothing) (pass p)
 
-collect :: MonadIO m =>
+collect :: (S.Serialize a, MonadIO m) =>
         RemoteExp (Rdd a) -> StateT Int m (LocalExp (Rdd a))
 collect a = do
   c <- get
@@ -65,7 +65,7 @@ collect a = do
   key <- liftIO V.newKey
   return $ Collect c key a
 
-count :: MonadIO m =>
+count :: (S.Serialize a, MonadIO m) =>
          RemoteExp (Rdd a) -> StateT Int m (LocalExp Int)
 count e = do
   c <- get
@@ -73,23 +73,25 @@ count e = do
   key <- liftIO V.newKey
   return $ Fold c key e (\b _ -> b+1) (0::Int)
 
-cstRemote :: MonadIO m => a -> StateT Int m (RemoteExp a)
+cstRemote :: (S.Serialize a, MonadIO m) => a -> StateT Int m (RemoteExp a)
 cstRemote a = do
   c <- get
   put (c+1)
   key <- liftIO V.newKey
   return $ ConstRemote c key a
 
-cstRdd :: MonadIO m => [a] -> StateT Int m (RemoteExp (Rdd a))
+cstRdd :: (S.Serialize a, MonadIO m) => [a] -> StateT Int m (RemoteExp (Rdd a))
 cstRdd a = cstRemote $ Rdd a
 
-join a b = do
+sjoin :: (S.Serialize a, S.Serialize b, MonadIO m) =>
+         RemoteExp (Rdd a) -> RemoteExp (Rdd b) -> StateT Int m (RemoteExp (Rdd (a, b)))
+sjoin a b = do
   c <- get
   put (c+1)
   key <- liftIO V.newKey
   return $ Join c key a b
 
-sfmap :: MonadIO m =>
+sfmap :: (S.Serialize a, S.Serialize b, MonadIO m) =>
          (a->b) -> LocalExp a -> StateT Int m (LocalExp b)
 sfmap f e = do
   c <- get
@@ -97,7 +99,23 @@ sfmap f e = do
   key <- liftIO V.newKey
   return $ FMap c key f e
 
-(<**>) :: MonadIO m =>
+(<**>) :: (S.Serialize a) => ApplExp (a->b) -> LocalExp a -> ApplExp b
+f <**> e = Apply' f e
+
+(<$$>) :: (S.Serialize a) => (a->b) -> LocalExp a -> ApplExp b
+f <$$> e = Apply' (ConstAppl f) e
+
+sfrom :: (S.Serialize a, MonadIO m) =>
+         ApplExp a -> StateT Int m (LocalExp a)
+sfrom e = do
+  c <- get
+  put (c+1)
+  key <- liftIO V.newKey
+  return $ FromAppl c key e
+
+
+{-
+(<**>) :: (S.Serialise b, MonadIO m) =>
        StateT Int m (LocalExp (a->b)) -> LocalExp a -> StateT Int m (LocalExp b)
 fm <**> e = do
   f <- fm
@@ -109,5 +127,4 @@ fm <**> e = do
 (<$$>) :: MonadIO m =>
        (a->b) -> LocalExp a -> StateT Int m (LocalExp b)
 f <$$> e = sfmap f e
-
-
+-}

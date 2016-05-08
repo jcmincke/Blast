@@ -16,14 +16,16 @@ library
   hs-source-dirs:      src
   exposed-modules:
     Blast
-    Blast.Types
-    Blast.Syntax
-    Blast.Optimizer
     Blast.Analyser
+    Blast.Optimizer
+    Blast.Remote
     Blast.Runner.Simple
+    Blast.Syntax
+    Blast.Types
   other-modules:
     Blast.Internal.Types
   build-depends:       base >= 4.7 && < 5
+    , async
     , bytestring
     , cereal
     , containers

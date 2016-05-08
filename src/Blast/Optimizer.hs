@@ -58,13 +58,11 @@ cat' (Pure f) (Closure c g) = do
 
 cat' (Closure cf f) (Closure cg g)  = do
   (count, b) <- get
-  put (count+2, True)
-  lc1 <- liftIO V.newKey
-  lc2 <- liftIO V.newKey
-  let cfg1 = FMap count lc1 (,) cf
-  let cfg2 = Apply (count+1) lc2 cfg1 cg
+  put (count+1, True)
+  lc <- liftIO V.newKey
+  let cfg = FromAppl count lc (Apply' (Apply' (ConstAppl (,)) cf) cg)
   liftIO $ putStrLn "fuse closure closure"
-  return $ Closure cfg2 (\(cf, cg) a -> (f cf) a >>= (g cg))
+  return $ Closure cfg (\(cf, cg) a -> (f cf) a >>= (g cg))
 
 
 
@@ -113,14 +111,28 @@ fuseLocal infos (Collect n key e) = do
   e' <- fuseRemote infos e
   return $ Collect n key e'
 
+{-
 fuseLocal infos (Apply n key f e) = do
   f' <- fuseLocal infos f
   e' <- fuseLocal infos e
   return $ Apply n key f' e'
+-}
+
+fuseLocal infos (FromAppl n key e) = do
+  e' <- fuseAppl infos e
+  return $ FromAppl n key e'
 
 fuseLocal infos (FMap n key f e) = do
   e' <- fuseLocal infos e
   return $ FMap n key f e'
+
+
+fuseAppl :: (MonadIO m) => InfoMap -> ApplExp a -> StateT (Int, Bool) m (ApplExp a)
+fuseAppl infos (Apply' f e) = do
+  f' <- fuseAppl infos f
+  e' <- fuseLocal infos e
+  return $ Apply' f' e'
+fuseAppl infos (ConstAppl e) = return (ConstAppl e)
 
 
 
