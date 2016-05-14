@@ -1,108 +1,162 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Blast.Optimizer
 
 where
 
 
-import Debug.Trace
-
 import qualified  Data.Vault.Strict as V
-import            Control.Bool (unlessM)
-import            Control.Lens (makeLenses, set, view)
 import            Control.Monad.IO.Class
+import            Control.Monad.Logger
 import            Control.Monad.Trans.State
-import qualified  Data.ByteString as BS
-import            Data.IORef
-import qualified  Data.List as L
 import qualified  Data.Map as M
 import            Data.Maybe
-import qualified  Data.Serialize as S
-import            GHC.Generics (Generic)
+import qualified  Data.Text as T
 
 import            Blast.Types
 import            Blast.Analyser
 
 
 
-optimize :: (MonadIO m) => Int -> InfoMap -> LocalExp a -> m (InfoMap, LocalExp a)
-optimize count infos e = do
-    liftIO $ putStrLn "entering optimization"
-    (e', (count', b)) <- runStateT (fuseLocal infos e) (count, False)
-    if b
-      then do liftIO $ print ("optimize: ", count')
-              optimize count' infos e'
-      else do infos' <- execStateT (analyseLocal e') M.empty
-              liftIO $ putStrLn "exiting optimization"
-              return (infos', e')
+optimize :: (MonadLoggerIO m) => Int -> InfoMap -> LocalExp a -> m (InfoMap, LocalExp a)
+optimize = do
+    go (1::Int)
+    where
+    go nbIter count infos e = do
+      (e', (count', b)) <- runStateT (fuseLocal infos e) (count, False)
+      $(logInfo) $ T.pack ("Optimization: iteration nb " ++ show nbIter)
+      if b
+        then do go (nbIter+1) count' infos e'
+        else do infos' <- execStateT (analyseLocal e') M.empty
+                $(logInfo) $ T.pack ("Exiting optimization after "++ show nbIter ++ " iteration(s)")
+                return (infos', e')
 
-
-cat' :: (MonadIO m) => Fun a (Maybe b) -> Fun b (Maybe c) -> StateT (Int, Bool) m (Fun a (Maybe c))
-cat' (Pure f) (Pure g) = do
+optimized :: (MonadLoggerIO m) => StateT (Int, Bool) m ()
+optimized = do
   (count, _) <- get
   put (count, True)
-  liftIO $ putStrLn "fuse pure-pure"
+
+combineClosure :: (MonadLoggerIO m, Monad mi) => Fun a (mi b) -> Fun b (mi c) -> StateT (Int, Bool) m (Fun a (mi c))
+combineClosure (Pure f) (Pure g) = do
+  optimized
   return $ Pure (\x -> f x >>= g)
-
-cat' (Closure c f) (Pure g) = do
+combineClosure (Closure ce f) (Pure g) = do
+  optimized
+  return $ Closure ce (\c a -> (f c) a >>= g)
+combineClosure (Pure f) (Closure ce g) = do
+  optimized
+  return $ Closure ce (\c a -> f a >>= (g c))
+combineClosure (Closure cf f) (Closure cg g)  = do
   (count, _) <- get
-  put (count, True)
-  liftIO $ putStrLn "fuse closure-pure"
-  return $ Closure c (\c a -> (f c) a >>= g)
-
-cat' (Pure f) (Closure c g) = do
-  (count, _) <- get
-  put (count, True)
-  liftIO $ putStrLn "fuse pure closure"
-  return $ Closure c (\c a -> f a >>= (g c))
-
-cat' (Closure cf f) (Closure cg g)  = do
-  (count, b) <- get
   put (count+1, True)
   lc <- liftIO V.newKey
   let cfg = FromAppl count lc (Apply' (Apply' (ConstAppl (,)) cf) cg)
-  liftIO $ putStrLn "fuse closure closure"
-  return $ Closure cfg (\(cf, cg) a -> (f cf) a >>= (g cg))
+  return $ Closure cfg (\(cf', cg') a -> (f cf') a >>= (g cg'))
 
 
+combineClosureF :: (MonadLoggerIO m) => Fun a [b] -> Fun b (Maybe c) -> StateT (Int, Bool) m (Fun a [c])
+combineClosureF (Pure f) (Pure g) = do
+  optimized
+  return $ Pure (\a -> mapMaybe g (f a))
+combineClosureF (Closure c f) (Pure g) = do
+  optimized
+  return $ Closure c (\c' a -> mapMaybe g ((f c') a))
+combineClosureF (Pure f) (Closure c g) = do
+  optimized
+  return $ Closure c (\c' a -> mapMaybe (g c') (f a))
+combineClosureF (Closure cf f) (Closure cg g)  = do
+  (count, _) <- get
+  put (count+1, True)
+  lc <- liftIO V.newKey
+  let cfg = FromAppl count lc (Apply' (Apply' (ConstAppl (,)) cf) cg)
+  liftIO $ putStrLn "fuse fclosure closure"
+  return $ Closure cfg (\(cf', cg') a -> mapMaybe (g cg') ((f cf') a))
 
-fuseClosure :: (MonadIO m) => InfoMap -> Fun a b -> StateT (Int, Bool) m (Fun a b)
-fuseClosure infos f@(Pure _) = return f
+
+combineClosureF' :: (MonadLoggerIO m) => Fun a (Maybe b) -> Fun b [c]  -> StateT (Int, Bool) m (Fun a [c])
+combineClosureF' (Pure f) (Pure g) = do
+  optimized
+  return $ Pure (\a -> maybe [] g (f a))
+
+combineClosureF' (Closure c f) (Pure g) = do
+  optimized
+  return $ Closure c (\c' a -> maybe [] g ((f c') a))
+
+combineClosureF' (Pure f) (Closure c g) = do
+  optimized
+  return $ Closure c (\c' a -> maybe [] (g c') (f a))
+
+combineClosureF' (Closure cf f) (Closure cg g)  = do
+  (count, _) <- get
+  put (count+1, True)
+  lc <- liftIO V.newKey
+  let cfg = FromAppl count lc (Apply' (Apply' (ConstAppl (,)) cf) cg)
+  liftIO $ putStrLn "fuse closure fclosure"
+  return $ Closure cfg (\(cf', cg') a -> maybe [] (g cg') ((f cf') a))
+
+
+fuseClosure :: (MonadLoggerIO m) => InfoMap -> Fun a b -> StateT (Int, Bool) m (Fun a b)
+fuseClosure _ f@(Pure _) = return f
 fuseClosure infos (Closure e f) = do
   e' <- fuseLocal infos e
   return $ Closure e' f
 
-fuseRemote :: (MonadIO m) => InfoMap -> RemoteExp a -> StateT (Int, Bool) m (RemoteExp a)
-fuseRemote infos oe@(Trans ne key ie@(Trans ni _ _ _) g) | refCountInner > 1 = do
+fuseRemote :: (MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (Int, Bool) m (RemoteExp a)
+fuseRemote infos (Map ne key ie g) | refCountInner > 1 = do
     g' <- fuseClosure infos g
     ie' <- fuseRemote infos ie
-    liftIO $ print ("ref = "::String, refCountInner, ni)
-    return $ Trans ne key ie' g'  -- inner expression is shared, will be cached
+    --liftIO $ print ("ref = "::String, refCountInner, (getRemoteIndex ie))
+    return $ Map ne key ie' g'  -- inner expression is shared, will be cached
     where
-    refCountInner = refCount ni infos
+    refCountInner = refCount (getRemoteIndex ie) infos
 
-fuseRemote infos (Trans ne key (Trans _ _ e f) g) = do
+fuseRemote infos (Map ne key (Map _ _ e f) g) = do
     f' <- fuseClosure infos f
     g' <- fuseClosure infos g
-    fg <- cat' f' g'
-    fuseRemote infos $ Trans ne key e fg
-fuseRemote infos oe@(Trans n key ie@(ConstRemote _ _ _) g) = do
+    fg <- combineClosure f' g'
+    fuseRemote infos $ Map ne key e fg
+
+fuseRemote infos (Map ne key (FlatMap _ _ e f) g) = do
+    f' <- fuseClosure infos f
     g' <- fuseClosure infos g
-    return $ Trans n key ie g'
-fuseRemote infos (Trans ne key ie@(Join _ _ _ _) g) = do
+    fg <- combineClosureF f' g'
+    fuseRemote infos $ FlatMap ne key e fg
+
+fuseRemote infos (Map n key ie@(ConstRemote _ _ _) g) = do
+    g' <- fuseClosure infos g
+    return $ Map n key ie g'
+
+fuseRemote infos (FlatMap ne key ie g) | refCountInner > 1 = do
     g' <- fuseClosure infos g
     ie' <- fuseRemote infos ie
-    return $ Trans ne key ie' g'
+    --liftIO $ print ("ref = "::String, refCountInner, (getRemoteIndex ie))
+    return $ FlatMap ne key ie' g'  -- inner expression is shared, will be cached
+    where
+    refCountInner = refCount (getRemoteIndex ie) infos
+
+fuseRemote infos (FlatMap ne key (Map _ _ e f) g) = do
+    f' <- fuseClosure infos f
+    g' <- fuseClosure infos g
+    fg <- combineClosureF' f' g'
+    fuseRemote infos $ FlatMap ne key e fg
+
+fuseRemote infos (FlatMap ne key (FlatMap _ _ e f) g) = do
+    f' <- fuseClosure infos f
+    g' <- fuseClosure infos g
+    fg <- combineClosure f' g'
+    fuseRemote infos $ FlatMap ne key e fg
+
+fuseRemote infos (FlatMap n key ie@(ConstRemote _ _ _) g) = do
+    g' <- fuseClosure infos g
+    return $ FlatMap n key ie g'
 
 
-fuseRemote infos e@(ConstRemote _ _ _) = return e
+fuseRemote _ e@(ConstRemote _ _ _) = return e
 
-fuseRemote infos e@(Join ne key a b) = do
-  a' <- fuseRemote infos a
-  b' <- fuseRemote infos b
-  return $ Join ne key a' b'
 
-fuseLocal :: (MonadIO m) => InfoMap -> LocalExp a -> StateT (Int, Bool) m (LocalExp a)
+fuseLocal :: (MonadLoggerIO m) => InfoMap -> LocalExp a -> StateT (Int, Bool) m (LocalExp a)
 fuseLocal infos (Fold n key e f z) = do
   e' <- fuseRemote infos e
   return $ Fold n key e' f z
@@ -110,13 +164,6 @@ fuseLocal infos (Fold n key e f z) = do
 fuseLocal infos (Collect n key e) = do
   e' <- fuseRemote infos e
   return $ Collect n key e'
-
-{-
-fuseLocal infos (Apply n key f e) = do
-  f' <- fuseLocal infos f
-  e' <- fuseLocal infos e
-  return $ Apply n key f' e'
--}
 
 fuseLocal infos (FromAppl n key e) = do
   e' <- fuseAppl infos e
@@ -126,13 +173,15 @@ fuseLocal infos (FMap n key f e) = do
   e' <- fuseLocal infos e
   return $ FMap n key f e'
 
+fuseLocal _ e@(ConstLocal _ _ _) = return e
 
-fuseAppl :: (MonadIO m) => InfoMap -> ApplExp a -> StateT (Int, Bool) m (ApplExp a)
+
+fuseAppl :: (MonadLoggerIO m) => InfoMap -> ApplExp a -> StateT (Int, Bool) m (ApplExp a)
 fuseAppl infos (Apply' f e) = do
   f' <- fuseAppl infos f
   e' <- fuseLocal infos e
   return $ Apply' f' e'
-fuseAppl infos (ConstAppl e) = return (ConstAppl e)
+fuseAppl _ (ConstAppl e) = return (ConstAppl e)
 
 
 

@@ -4,29 +4,18 @@ module Blast.Syntax
 where
 
 
-import Debug.Trace
 
 import qualified  Data.Vault.Strict as V
-import            Control.Bool (unlessM)
-import            Control.Lens (makeLenses, set, view)
 import            Control.Monad.IO.Class
 import            Control.Monad.Trans.State
-import qualified  Data.ByteString as BS
-import            Data.IORef
-import qualified  Data.List as L
-import qualified  Data.Map as M
-import            Data.Maybe
 import qualified  Data.Serialize as S
-import            GHC.Generics (Generic)
 
 import            Blast.Types
 
 
-
-
 pass :: Fun a b -> Fun a (a,b)
 pass (Pure f) = Pure (\a -> (a, f a))
-pass (Closure c f) = Closure c (\c a -> (a, (f c) a))
+pass (Closure ce f) = Closure ce (\c a -> (a, (f c) a))
 
 
 
@@ -45,7 +34,15 @@ smap e f = do
   c <- get
   put (c+1)
   key <- liftIO V.newKey
-  return $ Trans c key e (fmap Just f)
+  return $ Map c key e (fmap Just f)
+
+sflatmap :: (MonadIO m, S.Serialize a, S.Serialize b) =>
+     RemoteExp (Rdd a) -> Fun a [b] -> StateT Int m (RemoteExp (Rdd b))
+sflatmap e f = do
+  c <- get
+  put (c+1)
+  key <- liftIO V.newKey
+  return $ FlatMap c key e f
 
 sfilter :: (MonadIO m, S.Serialize a) =>
         RemoteExp (Rdd a) -> Fun a Bool -> StateT Int m (RemoteExp (Rdd a))
@@ -53,7 +50,7 @@ sfilter e p = do
   c <- get
   put (c+1)
   key <- liftIO V.newKey
-  return $ Trans c key e cs
+  return $ Map c key e cs
   where
   cs = fmap (\(a, bool) -> if bool then Just a else Nothing) (pass p)
 
@@ -73,6 +70,14 @@ count e = do
   key <- liftIO V.newKey
   return $ Fold c key e (\b _ -> b+1) (0::Int)
 
+sfold :: (S.Serialize a, S.Serialize s, MonadIO m) =>
+         RemoteExp (Rdd a) -> (s -> a -> s) -> s -> StateT Int m (LocalExp s)
+sfold e f z = do
+  c <- get
+  put (c+1)
+  key <- liftIO V.newKey
+  return $ Fold c key e f z
+
 cstRemote :: (S.Serialize a, MonadIO m) => a -> StateT Int m (RemoteExp a)
 cstRemote a = do
   c <- get
@@ -83,13 +88,25 @@ cstRemote a = do
 cstRdd :: (S.Serialize a, MonadIO m) => [a] -> StateT Int m (RemoteExp (Rdd a))
 cstRdd a = cstRemote $ Rdd a
 
-sjoin :: (S.Serialize a, S.Serialize b, MonadIO m) =>
-         RemoteExp (Rdd a) -> RemoteExp (Rdd b) -> StateT Int m (RemoteExp (Rdd (a, b)))
-sjoin a b = do
+
+cstLocal :: (S.Serialize a, MonadIO m) => a -> StateT Int m (LocalExp a)
+cstLocal a = do
   c <- get
   put (c+1)
   key <- liftIO V.newKey
-  return $ Join c key a b
+  return $ ConstLocal c key a
+
+sjoin :: (Show a, S.Serialize a, S.Serialize b, MonadIO m) =>
+         RemoteExp (Rdd a) -> RemoteExp (Rdd b) -> StateT Int m (RemoteExp (Rdd (a, b)))
+sjoin a b = do
+  a' <- collect a
+  sflatmap b (closure a' join)
+  where
+  join (Rdd ce) x = do
+    c <- ce
+    return (c, x)
+
+
 
 sfmap :: (S.Serialize a, S.Serialize b, MonadIO m) =>
          (a->b) -> LocalExp a -> StateT Int m (LocalExp b)
@@ -113,18 +130,3 @@ sfrom e = do
   key <- liftIO V.newKey
   return $ FromAppl c key e
 
-
-{-
-(<**>) :: (S.Serialise b, MonadIO m) =>
-       StateT Int m (LocalExp (a->b)) -> LocalExp a -> StateT Int m (LocalExp b)
-fm <**> e = do
-  f <- fm
-  c <- get
-  put (c+1)
-  key <- liftIO V.newKey
-  return $ Apply c key f e
-
-(<$$>) :: MonadIO m =>
-       (a->b) -> LocalExp a -> StateT Int m (LocalExp b)
-f <$$> e = sfmap f e
--}

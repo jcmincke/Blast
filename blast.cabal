@@ -16,23 +16,36 @@ library
   hs-source-dirs:      src
   exposed-modules:
     Blast
-    Blast.Analyser
-    Blast.Optimizer
-    Blast.Remote
-    Blast.Runner.Simple
-    Blast.Syntax
     Blast.Types
+    Blast.Syntax
+    Blast.Optimizer
+    Blast.Analyser
+    Blast.Runner.Simple
+    Blast.Distributed.Master
+    Blast.Distributed.Slave
+    Blast.Distributed.Types
+    Blast.Distributed.Rpc.Local
+    Blast.Distributed.Rpc.CloudHaskell
   other-modules:
     Blast.Internal.Types
   build-depends:       base >= 4.7 && < 5
     , async
+    , binary
     , bytestring
     , cereal
     , containers
     , control-bool
     , data-default
+    , deepseq
+    , distributed-process
+    , distributed-process-client-server
+    , distributed-process-extras
+    , distributed-process-simplelocalnet
     , lens
+    , monad-logger
+    , random
     , syb
+    , text
     , transformers
     , vault
   default-language:    Haskell2010
@@ -44,6 +57,25 @@ executable blast-exe
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
     , containers
+    , monad-logger
+    , transformers
+    , vault
+    , blast
+  default-language:    Haskell2010
+
+
+
+executable ch-blast
+  hs-source-dirs:      app
+  main-is:             ChMain.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+    , containers
+    , distributed-process
+    , distributed-process-client-server
+    , distributed-process-extras
+    , distributed-process-simplelocalnet
+    , monad-logger
     , transformers
     , vault
     , blast
