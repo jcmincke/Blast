@@ -46,13 +46,21 @@ data LocalSlaveRequest =
   |LsReqUncache Int
   |LsReqIsCached Int
   |LsReqReset Bool BS.ByteString  -- Bool = should optimize TODO : remove (use job desc principle)
-  deriving Generic
+  deriving (Generic)
+
+instance Show LocalSlaveRequest where
+  show (LsReqExecute _ _ _ _) = "LsReqExecute"
+  show (LsReqCache _ _) = "LsReqCache"
+  show (LsReqUncache  _) = "LsReqUncache"
+  show (LsReqIsCached  _) = "LsReqIsCached"
+  show (LsReqReset  _ _) = "LsReqReset"
+  show (LsReqStatus) = "LsReqStatus"
 
 data LocalSlaveExecuteResult =
   LsExecResCacheMiss Int
   |LsExecRes (Maybe BS.ByteString)
   |LsExecResError String
-  deriving Generic
+  deriving (Generic, Show)
 
 
 data LocalSlaveResponse =
@@ -60,7 +68,13 @@ data LocalSlaveResponse =
   |LsRespError String
   |LsRespVoid
   |LocalSlaveExecuteResult (RemoteClosureResult BS.ByteString)
-  deriving Generic
+  deriving (Generic)
+
+instance Show LocalSlaveResponse where
+  show (LsRespBool _) = "LsRespBool"
+  show (LsRespError _) = "LsRespError"
+  show (LsRespVoid) = "LsRespVoid"
+  show (LocalSlaveExecuteResult _) = "LocalSlaveExecuteResult"
 
 instance Binary LocalSlaveResponse
 

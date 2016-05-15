@@ -15,11 +15,12 @@ import Blast
 import qualified  Blast.Distributed.Rpc.Local as R
 
 main :: IO ()
-main = rr
+main = return ()
 
+{-
 
 er a = do
-      r1 <- cstRdd [1..10::Int]
+      r1 <- cstRdd [1..100000::Int]
       r2 <- smap r1 $ fun ((+) a)
       sum2 <- sfold r2 (+) 0
       r3 <- smap r1 (closure sum2 (\s a -> a+s))
@@ -35,11 +36,8 @@ rrec = do
   print a
   print b
 
-
-e = exp
-  where
---  exp :: StateT Int m (LocalExp (Int, Int))
-  exp = do
+e:: StateT Int m (LocalExp (Int, Int))
+e = do
       r1 <- cstRdd [1..1000::Int]
       r2 <- smap r1 $ fun ((+) 2)
       r3 <- smap r2 $ fun ((*) 2)
@@ -79,11 +77,14 @@ e =  do
   return a7
 -}
 
+
 rr = runStdoutLoggingT $ filterLogger (\_ _ -> False) $ do
   s <- R.createSimpleRemote 1.0 True 4 er
   liftIO $ putStrLn "start eval"
-  r <- R.runSimpleLocalRec s True er 0 (\x -> x==10)
+  r <- R.runSimpleLocalRec s True er 0 (\x -> False)
+--  r <- R.runSimpleLocalRec s True er 0 (\x -> x==10)
   liftIO $ print r
+
 
 --runSimpleLocalRec :: (S.Serialize a, S.Serialize b, RemoteClass s a) =>
 -- s a -> Bool -> (a -> StateT Int IO (LocalExp (a, b))) -> a -> (a -> Bool) -> IO (a, b)
@@ -92,11 +93,12 @@ rr = runStdoutLoggingT $ filterLogger (\_ _ -> False) $ do
 --      Float -> Bool -> Int -> (a -> StateT Int IO (LocalExp (a, b)))
 --      -> IO (SimpleRemote a)
 
-
+{-
 r = do
   e' <- evalStateT e 0
   print e'
   let r = runLocal e'
   print r
-
+-}
+-}
 

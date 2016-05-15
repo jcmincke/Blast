@@ -163,9 +163,6 @@ createSimpleRemote slaveAvailability shouldOptimize nbSlaves expGen = do
     return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty expGen)
 
 
-
-
---runSlave :: (S.Serialize a, MonadLoggerIO m) => LocalSlave (LoggingT IO) a b -> IO ()
 runSlave :: (S.Serialize a) => Chan LocalSlaveRequest -> Chan LocalSlaveResponse -> LocalSlave (LoggingT IO) a b -> IO ()
 runSlave inChan outChan als =
   runStdoutLoggingT $ go als

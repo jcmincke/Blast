@@ -35,41 +35,66 @@ runRec shouldOptimize gen a predicate = do
 
 
 
-runClosure :: Fun a b -> (a -> b)
-runClosure (Pure f) = f
-runClosure (Closure e f) =
+runFun :: Fun a b -> (a -> b)
+runFun (Pure f) = f
+runFun (Closure e f) =
   f r
   where
   r = runLocal e
 
 
+runFoldFun :: FoldFun a r -> (r -> a -> r)
+runFoldFun (FoldPure f) = f
+runFoldFun (FoldClosure e f) =
+  f r
+  where
+  r = runLocal e
+
+
+runRemoteFoldClosure :: PreparedFoldClosure a r -> (r, (r -> a -> r))
+runRemoteFoldClosure (PreparedFoldClosure e f) =
+  (z, f c)
+  where
+  (c, z) = runLocal e
+
+
+
 runRemote :: RemoteExp (Rdd a) -> Rdd a
-runRemote (Map _ _ e cs) =
+runRemote (RMap _ _ e cs) =
   Rdd $ mapMaybe f' rdd
   where
-  f' = runClosure cs
+  f' = runFun cs
   (Rdd rdd) = runRemote e
-runRemote (FlatMap _ _ e cs) =
+runRemote (RFold _ _ e cs) =
+  Rdd $ [L.foldl' f' z rdd]
+  where
+  (z, f') = runRemoteFoldClosure cs
+  (Rdd rdd) = runRemote e
+runRemote (RFlatMap _ _ e cs) =
   Rdd $ L.concat $ L.map f' rdd
   where
-  f' = runClosure cs
+  f' = runFun cs
   (Rdd rdd) = runRemote e
-runRemote (ConstRemote _ _ (Rdd x)) = Rdd x
+runRemote (RConst _ _ (Rdd x)) = Rdd x
 
 runLocal :: LocalExp a -> a
 runLocal (Collect _ _ e) = runRemote e
-runLocal (ConstLocal _ _ a) = a
-runLocal (Fold _ _ e f z) =
-  L.foldl' f z rdd
+runLocal (LConst _ _ a) = a
+runLocal (LFold _ _ e cs) =
+  L.foldl' f' z rdd
   where
+  (z, f') = runRemoteFoldClosure cs
   (Rdd rdd) = runRemote e
 runLocal (FromAppl _ _ e) = runAppl e
-runLocal (FMap _ _ f e) = f $ runLocal e
+runLocal (LMap _ _ f e) =
+  f' $ runLocal e
+  where
+  f' = runFun f
 
-runAppl :: ApplExp a -> a
-runAppl (Apply' f e) =
+runAppl :: ApplyExp a -> a
+runAppl (Apply f e) =
   runAppl f (runLocal e)
-runAppl (ConstAppl e) = e
+runAppl (ConstApply e) = e
 
 
 

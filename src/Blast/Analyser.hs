@@ -109,6 +109,33 @@ mkRemoteFlatClosure keya keyb cs = do
       let keyc = getLocalVaultKey e
       return $ wrapFlatClosure keyc keya keyb f
 
+
+mkPreparedFoldClosure :: forall a r m . (MonadLoggerIO m , S.Serialize r, S.Serialize a) =>
+  V.Key (Rdd a) -> V.Key (Rdd r) -> PreparedFoldClosure a r -> StateT (M.Map Int Info) m RemoteClosure
+mkPreparedFoldClosure keya keyb (PreparedFoldClosure e f) = do
+  analyseLocal e
+  let keyc = getLocalVaultKey e
+  return $ wrapPreparedFoldClosure keyc keya keyb f
+
+
+wrapPreparedFoldClosure :: forall a r c . (S.Serialize a, S.Serialize r, S.Serialize c) =>
+            V.Key (c, r) -> V.Key (Rdd a) -> V.Key (Rdd r) -> (c -> r -> a -> r) -> RemoteClosure
+wrapPreparedFoldClosure keyc keya keyb f =
+    proc
+    where
+    proc vault cfv a (ResultDescriptor shouldReturn shouldCache) =
+      either (\l -> (l, vault)) id r
+      where
+      r = do
+        (c, z) <- getVal CachedFreeVar vault keyc cfv
+        (Rdd al) <- getVal CachedArg vault keya a
+        let brdd = Rdd $ [L.foldl' (f c) z al]
+        let vault' = if shouldCache then V.insert keyb brdd vault else vault
+        let bbsM = if shouldReturn then Just $ S.encode brdd else Nothing
+        return (ExecRes bbsM, vault')
+
+
+
 wrapPure :: forall a b. (S.Serialize b, S.Serialize a) =>
             V.Key (Rdd a) -> V.Key (Rdd b) -> (a -> Maybe b) -> RemoteClosure
 wrapPure keya keyb f =
@@ -190,29 +217,30 @@ getVal cvt vault key CachedRemoteValue =
 
 
 getRemoteIndex :: RemoteExp a -> Int
-getRemoteIndex (Map i _ _ _) = i
-getRemoteIndex (FlatMap i _ _ _) = i
-getRemoteIndex (ConstRemote i _ _) = i
+getRemoteIndex (RMap i _ _ _) = i
+getRemoteIndex (RFold i _ _ _) = i
+getRemoteIndex (RFlatMap i _ _ _) = i
+getRemoteIndex (RConst i _ _) = i
 
 getRemoteVaultKey :: RemoteExp a -> V.Key a
-getRemoteVaultKey (Map _ k _ _) = k
-getRemoteVaultKey (FlatMap _ k _ _) = k
-getRemoteVaultKey (ConstRemote _ k _) = k
-
+getRemoteVaultKey (RMap _ k _ _) = k
+getRemoteVaultKey (RFold _ k _ _) = k
+getRemoteVaultKey (RFlatMap _ k _ _) = k
+getRemoteVaultKey (RConst _ k _) = k
 
 getLocalIndex :: LocalExp a -> Int
-getLocalIndex (Fold i _ _ _ _) = i
-getLocalIndex (ConstLocal i _ _) = i
+getLocalIndex (LFold i _ _ _) = i
+getLocalIndex (LConst i _ _) = i
 getLocalIndex (Collect i _ _) = i
 getLocalIndex (FromAppl i _ _) = i
-getLocalIndex (FMap i _ _ _) = i
+getLocalIndex (LMap i _ _ _) = i
 
 getLocalVaultKey :: LocalExp a -> V.Key a
-getLocalVaultKey (Fold _ k _ _ _) = k
-getLocalVaultKey (ConstLocal _ k _) = k
+getLocalVaultKey (LFold _ k _ _) = k
+getLocalVaultKey (LConst _ k _) = k
 getLocalVaultKey (Collect _ k _) = k
 getLocalVaultKey (FromAppl _ k _) = k
-getLocalVaultKey (FMap _ k _ _) = k
+getLocalVaultKey (LMap _ k _ _) = k
 
 
 makeCacher :: (S.Serialize a) => V.Key a -> BS.ByteString -> V.Vault -> V.Vault
@@ -231,29 +259,29 @@ makeIsCached key vault =
   Nothing -> False
 
 analyseRemote :: (MonadLoggerIO m) => RemoteExp a -> StateT InfoMap m ()
-analyseRemote (Map n keyb a cs@(Pure _)) =
+analyseRemote (RMap n keyb a cs@(Pure _)) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
     increaseRefM (getRemoteIndex a)
-    $(logInfo) $ T.pack ("create pure closure for Map node " ++ show n)
+    $(logInfo) $ T.pack ("create pure closure for RMap node " ++ show n)
     let keya = getRemoteVaultKey a
     rcs <- mkRemoteClosure keya keyb cs
     visitExpM n (makeCacher keyb) (makeUnCacher keyb) (makeIsCached keyb)
     setRemoteClosureM n rcs
 
-analyseRemote (Map n keyb a cs@(Closure ce _)) =
+analyseRemote (RMap n keyb a cs@(Closure ce _)) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
     increaseRefM (getRemoteIndex a)
     analyseLocal ce
     increaseRefM (getLocalIndex ce)
-    $(logInfo) $ T.pack ("create closure for Map node " ++ show n)
+    $(logInfo) $ T.pack ("create closure for RMap node " ++ show n)
     let keya = getRemoteVaultKey a
     rcs <- mkRemoteClosure keya keyb cs
     visitExpM n (makeCacher keyb) (makeUnCacher keyb) (makeIsCached keyb)
     setRemoteClosureM n rcs
 
-analyseRemote (FlatMap n keyb a cs@(Pure _)) =
+analyseRemote (RFlatMap n keyb a cs@(Pure _)) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
     increaseRefM (getRemoteIndex a)
@@ -263,7 +291,8 @@ analyseRemote (FlatMap n keyb a cs@(Pure _)) =
     visitExpM n (makeCacher keyb) (makeUnCacher keyb) (makeIsCached keyb)
     setRemoteClosureM n rcs
 
-analyseRemote (FlatMap n keyb a cs@(Closure ce _)) =
+
+analyseRemote (RFlatMap n keyb a cs@(Closure ce _)) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
     increaseRefM (getRemoteIndex a)
@@ -275,18 +304,32 @@ analyseRemote (FlatMap n keyb a cs@(Closure ce _)) =
     visitExpM n (makeCacher keyb) (makeUnCacher keyb) (makeIsCached keyb)
     setRemoteClosureM n rcs
 
-analyseRemote (ConstRemote n key _) =
+
+analyseRemote (RFold n keyb a cs@(PreparedFoldClosure ce f)) =
+  unlessM (wasVisitedM n) $ do
+    analyseRemote a
+    increaseRefM (getRemoteIndex a)
+    analyseLocal ce
+    increaseRefM (getLocalIndex ce)
+    $(logInfo) $ T.pack ("create pure closure for RemoteFold node " ++ show n)
+    let keya = getRemoteVaultKey a
+    rcs <- mkPreparedFoldClosure keya keyb cs
+    visitExpM n (makeCacher keyb) (makeUnCacher keyb) (makeIsCached keyb)
+    setRemoteClosureM n rcs
+
+
+analyseRemote (RConst n key _) =
   unlessM (wasVisitedM n) $ visitExpM n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
 
 analyseLocal :: (MonadLoggerIO m) => LocalExp a -> StateT InfoMap m ()
-analyseLocal (Fold n key e _ _) =
+analyseLocal (LFold n key e _) =
   unlessM (wasVisitedM n) $ do
     analyseRemote e
     increaseRefM (getRemoteIndex e)
     visitExpM n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
-analyseLocal(ConstLocal n key _) =
+analyseLocal(LConst n key _) =
   unlessM (wasVisitedM n) $ visitExpM n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
 analyseLocal (Collect n key e) =
@@ -300,16 +343,16 @@ analyseLocal (FromAppl n key e) =
     analyseAppl e
     visitExpM n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
-analyseLocal (FMap n key _ e) =
+analyseLocal (LMap n key _ e) =
   unlessM (wasVisitedM n) $ do
     analyseLocal e
     visitExpM n (makeCacher key) (makeUnCacher key) (makeIsCached key)
 
 
-analyseAppl :: (MonadLoggerIO m) => ApplExp a -> StateT InfoMap m ()
-analyseAppl (Apply' f e) = do
+analyseAppl :: (MonadLoggerIO m) => ApplyExp a -> StateT InfoMap m ()
+analyseAppl (Apply f e) = do
   analyseAppl f
   analyseLocal e
 
-analyseAppl (ConstAppl _) = return ()
+analyseAppl (ConstApply _) = return ()
 

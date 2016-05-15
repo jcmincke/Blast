@@ -21,22 +21,41 @@ import            System.Environment (getArgs)
 import            Blast
 import            Blast.Distributed.Rpc.CloudHaskell
 
-
-
+{-
 expGenerator a = do
-      r1 <- cstRdd [1..10::Int]
+      r1 <- cstRdd [1..100000::Int]
       r2 <- smap r1 $ fun ((+) a)
-      sum2 <- sfold r2 (+) 0
+      zero <- cstLocal 0
+      sum2 <- slocalfold r2 (foldFun (+)) zero
       r3 <- smap r1 (closure sum2 (\s a -> a+s))
-      sum3 <- sfold r3 (+) 0
+      sum3 <- slocalfold r3 (foldFun (+)) zero
       r4 <- smap r2 (closure sum3 (\s a -> a+s))
-      sum4 <- sfold r4 (+) 0
+      sum4 <- slocalfold r4 (foldFun (+)) zero
       a' <- cstLocal (a+1)
       r <- sfrom ((,) <$$> a' <**> sum4)
       return r
+-}
+
+fib :: Int -> Int
+fib 0 = 0
+fib 1 = 1
+fib 2 = 3
+fib n = fib (n-1) + fib (n-2)
 
 
-jobDesc = MkJobDesc True 0 expGenerator (\x -> x==10)
+expGenerator (a::Int) = do
+      r1 <- cstRdd [ 27| _ <- [1..10000::Int]]
+      r2 <- rmap r1 (fun fib)
+      zero <- lcst (0::Int)
+      a2 <- rfold' r2 (foldFun (+)) sum zero
+      --a2 <- collect r2
+--      a2 <- slocalfold r1 (foldFun (+)) zero
+      a' <- lcst (a+1)
+      r <- from ((,) <$$> a' <**> a2)
+      return r
+
+jobDesc = MkJobDesc True 0 expGenerator (\x -> x==1)
+--jobDesc = MkJobDesc True 0 expGenerator (\x -> False)
 
 slaveClosure = slaveProcess jobDesc
 
@@ -44,6 +63,8 @@ remotable ['slaveClosure]
 
 rtable :: RemoteTable
 rtable = __remoteTable initRemoteTable
+
+
 
 main :: IO ()
 main = do
@@ -53,3 +74,10 @@ main = do
   k a b = do
     print a
     print b
+
+
+rrec = do
+  (a,b) <- runStdoutLoggingT $ runRec False expGenerator 0 (\x -> x==1)
+  print a
+  print b
+
