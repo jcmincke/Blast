@@ -20,6 +20,7 @@ import            System.Environment (getArgs)
 
 import            Blast
 import            Blast.Distributed.Rpc.CloudHaskell
+import qualified  Blast.Runner.Simple as S
 
 {-
 expGenerator a = do
@@ -44,7 +45,7 @@ fib n = fib (n-1) + fib (n-2)
 
 
 expGenerator (a::Int) = do
-      r1 <- cstRdd [ 27| _ <- [1..10000::Int]]
+      r1 <- rcst [ 2| _ <- [1..10::Int]]
       r2 <- rmap r1 (fun fib)
       zero <- lcst (0::Int)
       a2 <- rfold' r2 (foldFun (+)) sum zero
@@ -66,7 +67,6 @@ rtable = __remoteTable initRemoteTable
 
 
 
-main :: IO ()
 main = do
   args <- getArgs
   runRpc rtable args jobDesc $(mkClosure 'slaveClosure) k
@@ -79,5 +79,13 @@ main = do
 rrec = do
   (a,b) <- runStdoutLoggingT $ runRec False expGenerator 0 (\x -> x==1)
   print a
+  print b
+
+
+--runRec :: (MonadIO m, MonadLoggerIO m) => Bool -> (a -> StateT Int m (LocalExp (a, b))) -> a -> (a -> Bool) -> m (a, b)
+rrec' = do
+  (a,b) <- runStdoutLoggingT $ S.runRec False expGenerator 0 (\x -> x>=1)
+  print a
+  print "kk"
   print b
 
