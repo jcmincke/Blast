@@ -11,6 +11,7 @@ module Blast.Distributed.Slave
 
 where
 
+import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 
@@ -52,27 +53,27 @@ runCommand ls LsReqStatus = return (LsRespBool (not $ M.null $ infos ls), ls)
 runCommand ls (LsReqExecute i crv arv rdesc) = do
     case M.lookup i (infos ls) of
       Nothing -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
-      Just (Info _ (Just cs) _ _ _) -> do
-        let (res, vault') = cs (vault ls) crv arv rdesc
+      Just (Info _ (Just cs) _) -> do
+        (res, vault') <- liftIO $ cs (vault ls) crv arv rdesc
         let ls' = ls {vault =  vault'}
         return (LocalSlaveExecuteResult res, ls')
-      Just (Info _ Nothing _ _ _) -> return (LocalSlaveExecuteResult (ExecResError ("closure not found: "++show i)), ls)
+      Just (Info _ Nothing _) -> return (LocalSlaveExecuteResult (ExecResError ("closure not found: "++show i)), ls)
 runCommand ls (LsReqCache i bs) =
     case M.lookup i (infos ls) of
       Nothing -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
-      Just (Info _ _ cacherFun _ _) -> do
+      Just (Info _ _ (Just (MkCacheInfo cacherFun _ _))) -> do
         let vault' = cacherFun bs (vault ls)
         return (LsRespBool True, ls {vault = vault'})
 runCommand ls (LsReqUncache i) = do
     case M.lookup i (infos ls) of
       Nothing -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
-      Just (Info _ _ _ unCacherFun _) -> do
+      Just (Info _ _ (Just (MkCacheInfo _ unCacherFun _))) -> do
         let vault' = unCacherFun (vault ls)
         return (LsRespBool True, ls {vault = vault'})
 runCommand ls (LsReqIsCached i) = do
     case M.lookup i (infos ls) of
       Nothing -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
-      Just (Info _ _ _ _ isCachedFun) -> do
+      Just (Info _ _ (Just (MkCacheInfo _ _ isCachedFun))) -> do
         let b = isCachedFun (vault ls)
         return (LsRespBool b, ls)
 

@@ -1,192 +1,194 @@
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Blast.Syntax
 where
 
-
-import qualified  Data.List as L
-import qualified  Data.Vault.Strict as V
+import            Control.Monad hiding (join)
 import            Control.Monad.IO.Class
 import            Control.Monad.Trans.State
+import            Data.Traversable
+import            Data.Vault.Strict as V
 import qualified  Data.Serialize as S
 
 import            Blast.Types
 
 
 
+class Joinable a b where
+  type JoinedVal a b :: *
+  join :: a -> b -> JoinedVal a b
+
+
 fun :: (a -> b) -> Fun a b
-fun f = Pure f
+fun f = Pure (return . f)
 
 closure :: forall a b c. (S.Serialize c, Show c) => LocalExp c -> (c -> a -> b) -> Fun a b
-closure c f = Closure c f
+closure ce f = Closure ce (\c a -> return $ f c a)
 
 
 foldFun :: (r -> a -> r) -> FoldFun a r
-foldFun f = FoldPure f
+foldFun f = FoldPure (\r a -> return $ f r a)
 
 foldClosure :: forall a r c. (S.Serialize c, Show c) => LocalExp c -> (c -> r -> a -> r) -> FoldFun a r
-foldClosure c f = FoldClosure c f
+foldClosure ce f = FoldClosure ce (\c r a -> return $ f c r a)
+
+funIO :: (a -> IO b) -> Fun a b
+funIO f = Pure f
+
+closureIO :: forall a b c. (S.Serialize c, Show c) => LocalExp c -> (c -> a -> IO b) -> Fun a b
+closureIO ce f = Closure ce f
 
 
-rmap :: (MonadIO m, S.Serialize a, S.Serialize b) =>
-     RemoteExp [a] -> Fun a b -> StateT Int m (RemoteExp [b])
-rmap e f = do
-  index <- get
-  put (index+1)
+foldFunIO :: (r -> a -> IO r) -> FoldFun a r
+foldFunIO f = FoldPure f
+
+foldClosureIO :: forall a r c. (S.Serialize c, Show c) => LocalExp c -> (c -> r -> a -> IO r) -> FoldFun a r
+foldClosureIO ce f = FoldClosure ce f
+
+
+rmap :: (MonadIO m, S.Serialize (t a), Chunkable (t a), S.Serialize (t b), Chunkable (t b), Traversable t, NodeIndexer s) =>
+      Fun a b -> RemoteExp (t a) -> StateT s m (RemoteExp (t b))
+rmap fm e  = do
+  index <- nextIndex
   key <- liftIO V.newKey
-  cs <- mkRemoteClosure f
-  return $ RMap index key e cs
+  cs <- mkRemoteClosure fm
+  return $ RMap index key cs e
   where
   mkRemoteClosure (Pure f) = do
     ue <- lcst ()
-    return $ ExpClosure ue (\() a -> L.map f a)
-  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> L.map (f c) a)
+    return $ ExpClosure ue (\() a -> mapM f a)
+  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> mapM (f c) a)
 
-rflatmap :: (MonadIO m, S.Serialize a, S.Serialize b) =>
-     RemoteExp [a] -> Fun a [b] -> StateT Int m (RemoteExp [b])
-rflatmap e f = do
-  index <- get
-  put (index+1)
+
+rflatmap :: (MonadIO m, S.Serialize (t a), Chunkable (t a), S.Serialize (t b), Chunkable (t b), Foldable t, Monoid (t b), NodeIndexer s) =>
+     Fun a (t b) -> RemoteExp (t a) -> StateT s m (RemoteExp (t b))
+rflatmap fp e = do
+  index <- nextIndex
   key <- liftIO V.newKey
-  cs <- mkRemoteClosure f
-  return $ RMap index key e cs
+  cs <- mkRemoteClosure fp
+  return $ RMap index key cs e
   where
   mkRemoteClosure (Pure f) = do
     ue <- lcst ()
-    return $ ExpClosure ue (\() a -> L.concat $ L.map f a)
-  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> L.concat $ L.map (f c) a)
+    return $ ExpClosure ue (\() a -> foldMap f a)
+  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> foldMap (f c) a)
 
-rfilter :: (MonadIO m, S.Serialize a) =>
-        RemoteExp [a] -> Fun a Bool -> StateT Int m (RemoteExp [a])
-rfilter e p = do
-  index <- get
-  put (index+1)
+rfilter :: (MonadIO m, S.Serialize (t a), Chunkable (t a), Applicative t, Foldable t, Monoid (t a), NodeIndexer s) =>
+        Fun a Bool -> RemoteExp (t a) -> StateT s m (RemoteExp (t a))
+rfilter p e = do
+  index <- nextIndex
   key <- liftIO V.newKey
   cs <- mkRemoteClosure p
-  return $ RMap index key e cs
+  return $ RMap index key cs e
   where
   mkRemoteClosure (Pure f) = do
     ue <- lcst ()
-    return $ ExpClosure ue (\() a -> L.filter f a)
-  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> L.filter (f c) a)
+    return $ ExpClosure ue (\() ta -> do
+        r <- foldMap (\a -> do
+            b <- f a
+            return $ if b then pure a else mempty) ta
+        return r) -- $ foldMap id r)
+  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c ta -> do
+        r <- foldMap (\a -> do
+              b <- f c a
+              return $ if b then pure a else mempty) ta
+        return r) -- $ foldMap id r)
 
-  cs = fmap (\(a, bool) -> if bool then Just a else Nothing) (pass p)
-  pass :: Fun a b -> Fun a (a,b)
-  pass (Pure f) = Pure (\a -> (a, f a))
-  pass (Closure ce f) = Closure ce (\c a -> (a, (f c) a))
 
-collect :: (S.Serialize a, MonadIO m) =>
-        RemoteExp [a] -> StateT Int m (LocalExp [a])
+collect :: (MonadIO m, S.Serialize a, Chunkable a, NodeIndexer s) =>
+        RemoteExp a -> StateT s m (LocalExp a)
 collect a = do
-  index <- get
-  put (index+1)
+  index <- nextIndex
   key <- liftIO V.newKey
   return $ Collect index key a
 
-count :: (S.Serialize a, Show a, MonadIO m) =>
-         LocalExp [a] -> StateT Int m (LocalExp Int)
+count :: (Show a, Foldable t, MonadIO m, NodeIndexer s) =>
+         LocalExp (t a) -> StateT s m (LocalExp Int)
 count e = do
   zero <- lcst (0::Int)
-  lfold e (foldFun (\b _ -> b+1)) zero
+  f <- lcst (\b _ -> b+1)
+  lfold f zero e
 
-rcst :: (S.Serialize a, Chunkable a, MonadIO m) => a -> StateT Int m (RemoteExp a)
+rcst :: (S.Serialize a, Chunkable a, MonadIO m, NodeIndexer s) => a -> StateT s m (RemoteExp a)
 rcst a = do
-  index <- get
-  put (index+1)
+  index <- nextIndex
   key <- liftIO V.newKey
   return $ RConst index key a
 
 
-lcst :: (S.Serialize a, MonadIO m) => a -> StateT Int m (LocalExp a)
+lcst :: (MonadIO m, NodeIndexer s) => a -> StateT s m (LocalExp a)
 lcst a = do
-  index <- get
-  put (index+1)
+  index <- nextIndex
   key <- liftIO V.newKey
   return $ LConst index key a
 
-join :: (Show a, S.Serialize a, S.Serialize b, MonadIO m) =>
-         RemoteExp [a] -> RemoteExp [b] -> StateT Int m (RemoteExp [(a, b)])
-join a b = do
+
+rjoin :: (MonadIO m, Show a, S.Serialize a, S.Serialize b, S.Serialize (JoinedVal a b),
+          Joinable a b, Chunkable a, Chunkable b, Chunkable (JoinedVal a b), NodeIndexer s) =>
+         RemoteExp a -> RemoteExp b -> StateT s m (RemoteExp (JoinedVal a b))
+rjoin a b = do
   a' <- collect a
-  rflatmap b (closure a' doJoin)
-  where
-  doJoin ce x = do
-    c <- ce
-    return (c, x)
-
-lfold :: (Show a, Show r, S.Serialize a, S.Serialize r, MonadIO m) =>
-         LocalExp [a] -> FoldFun a r -> LocalExp r -> StateT Int m (LocalExp r)
-lfold a f zero = do
-  index <- get
-  put (index+1)
+  index <- nextIndex
   key <- liftIO V.newKey
-  cs <- mkRemoteClosure f
-  return $ LMap index key a cs
+  let cs = ExpClosure a' (\av bv -> return $ join av bv)
+  return $ RMap index key cs b
+
+
+lfold :: (MonadIO m, Show a, Show r, Foldable t, NodeIndexer s) =>
+         LocalExp (r -> a -> r) -> LocalExp r -> LocalExp (t a) -> StateT s m (LocalExp r)
+lfold f zero a = do
+  index <- nextIndex
+  key <- liftIO V.newKey
+  f' <- foldl <$$> f <**> zero
+  return $ FMap index key f' a
+
+
+lfold' :: (MonadIO m, Show a, Show r, Foldable t, NodeIndexer s) =>
+         (r -> a -> r) -> LocalExp r -> LocalExp (t a) -> StateT s m (LocalExp r)
+lfold' f zero a = do
+  f' <- lcst f
+  lfold f' zero a
+
+rfold :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), Chunkable (t r)
+          , S.Serialize r, Applicative t, Foldable t, NodeIndexer s) =>
+         FoldFun a r -> LocalExp r -> RemoteExp (t a) -> StateT s m (RemoteExp (t r))
+rfold fp zero e = do
+  index <- nextIndex
+  key <- liftIO V.newKey
+  cs <- mkRemoteClosure fp
+  return $ RMap index key cs e
   where
   mkRemoteClosure (FoldPure f) = do
-      let av = Apply (ConstApply (\z -> ((), z))) zero
-      cv <- from av
-      return $ ExpClosure cv (\((), z) a -> L.foldl' f z a)
+      cv <- (\z -> ((), z)) <$$> zero
+      return $ ExpClosure cv (\((), z) a -> do
+                r <- foldM f z a
+                return $ pure r)
   mkRemoteClosure (FoldClosure ce f) = do
-      let av = Apply (Apply (ConstApply (\c z -> (c, z))) ce) zero
-      cv <- from av
-      return $ ExpClosure cv (\(c,z) a -> L.foldl' (f c) z a)
+      cv <- (\c z -> (c, z)) <$$> ce <**> zero
+      return $ ExpClosure cv (\(c,z) a -> do
+                r <- foldM  (f c) z a
+                return $ pure r)
 
 
-rfold :: (Show a, Show r, S.Serialize a, S.Serialize r, MonadIO m) =>
-         RemoteExp [a] -> FoldFun a r -> LocalExp r -> StateT Int m (RemoteExp [r])
-rfold a f zero = do
-  index <- get
-  put (index+1)
-  key <- liftIO V.newKey
-  cs <- mkRemoteClosure f
-  return $ RMap index key a cs
-  where
-  mkRemoteClosure (FoldPure f) = do
-      let av = Apply (ConstApply (\z -> ((), z))) zero
-      cv <- from av
-      return $ ExpClosure cv (\((), z) a -> [L.foldl' f z a])
-  mkRemoteClosure (FoldClosure ce f) = do
-      let av = Apply (Apply (ConstApply (\c z -> (c, z))) ce) zero
-      cv <- from av
-      return $ ExpClosure cv (\(c,z) a -> [L.foldl' (f c) z a])
-
-
-rfold' :: (Show a, Show r, S.Serialize a, S.Serialize r, MonadIO m) =>
-         RemoteExp [a] -> FoldFun a r -> ([r] -> r) -> LocalExp r -> StateT Int m (LocalExp r)
-rfold' a f aggregator zero = do
-  rs <- rfold a f zero
+rfold' :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), Chunkable (t r), S.Serialize r
+           , Applicative t, Foldable t, NodeIndexer s) =>
+         FoldFun a r -> (t r -> r) -> LocalExp r -> RemoteExp (t a) -> StateT s m (LocalExp r)
+rfold' f aggregator zero a = do
+  rs <- rfold f zero a
   ars <- collect rs
-  lmap (fun aggregator') ars
-  where
-  aggregator' x = aggregator x
+  aggregator <$$> ars
 
 
-lmap :: (S.Serialize a, S.Serialize b, MonadIO m) =>
-         Fun a b -> LocalExp a -> StateT Int m (LocalExp b)
-lmap f e = do
-  index <- get
-  put (index+1)
+(<**>) :: (MonadIO m, NodeIndexer s) => StateT s m (LocalExp (a->b)) -> LocalExp a -> StateT s m (LocalExp b)
+f <**> a = do
+  cs <- f
+  index <- nextIndex
   key <- liftIO V.newKey
-  cs <- mkRemoteClosure f
-  return $ LMap index key e cs
-  where
-  mkRemoteClosure (Pure f) = do
-    ue <- lcst ()
-    return $ ExpClosure ue (\() a -> f a)
-  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> (f c) a)
+  return $ FMap index key cs a
 
-(<**>) :: (S.Serialize a) => ApplyExp (a->b) -> LocalExp a -> ApplyExp b
-f <**> e = Apply f e
 
-(<$$>) :: (S.Serialize a) => (a->b) -> LocalExp a -> ApplyExp b
-f <$$> e = Apply (ConstApply f) e
-
-from :: (S.Serialize a, MonadIO m) =>
-         ApplyExp a -> StateT Int m (LocalExp a)
-from e = do
-  index <- get
-  put (index+1)
-  key <- liftIO V.newKey
-  return $ FromAppl index  key e
-
+(<$$>) :: (MonadIO m, NodeIndexer s) => (a->b) -> LocalExp a -> StateT s m (LocalExp b)
+f <$$> e = lcst f <**> e

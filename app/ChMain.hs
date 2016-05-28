@@ -10,6 +10,7 @@ import qualified  Data.Map as M
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
+import            Data.Traversable
 import qualified  Data.Vault.Strict as V
 
 import            Control.Distributed.Process (RemoteTable)
@@ -37,6 +38,7 @@ expGenerator a = do
       return r
 -}
 
+
 fib :: Int -> Int
 fib 0 = 0
 fib 1 = 1
@@ -46,16 +48,28 @@ fib n = fib (n-1) + fib (n-2)
 
 expGenerator (a::Int) = do
       r1 <- rcst [ 2| _ <- [1..10::Int]]
-      r2 <- rmap r1 (fun fib)
+      r2 <- rmap (fun fib) r1
       zero <- lcst (0::Int)
-      a2 <- rfold' r2 (foldFun (+)) sum zero
+      c1 <- lcst (0 ::Int)
+      a2 <- rfold' (foldClosure c1 (const (+))) sum zero r2
       --a2 <- collect r2
 --      a2 <- slocalfold r1 (foldFun (+)) zero
+      one <- lcst (1::Int)
+      ar2 <- collect r2
+      a3 <- lfold' (*) one ar2
       a' <- lcst (a+1)
-      r <- from ((,) <$$> a' <**> a2)
+      r <- ((,) <$$> a' <**> a2)
       return r
 
-jobDesc = MkJobDesc True 0 expGenerator (\x -> x==1)
+reporting a b = do
+  putStrLn "Reporting"
+  print a
+  print b
+  putStrLn "End Reporting"
+  return a
+
+
+jobDesc = MkJobDesc True 0 expGenerator reporting (\x -> x>=3)
 --jobDesc = MkJobDesc True 0 expGenerator (\x -> False)
 
 slaveClosure = slaveProcess jobDesc
@@ -74,17 +88,18 @@ main = do
   k a b = do
     print a
     print b
+    print "=========="
 
 
 rrec = do
-  (a,b) <- runStdoutLoggingT $ runRec False expGenerator 0 (\x -> x==1)
+  (a,b) <- runStdoutLoggingT $ runRec jobDesc
   print a
   print b
 
 
 --runRec :: (MonadIO m, MonadLoggerIO m) => Bool -> (a -> StateT Int m (LocalExp (a, b))) -> a -> (a -> Bool) -> m (a, b)
 rrec' = do
-  (a,b) <- runStdoutLoggingT $ S.runRec False expGenerator 0 (\x -> x>=1)
+  (a,b) <- runStdoutLoggingT $ S.runRec jobDesc
   print a
   print "kk"
   print b

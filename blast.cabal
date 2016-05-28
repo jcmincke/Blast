@@ -41,6 +41,7 @@ library
     , distributed-process-client-server
     , distributed-process-extras
     , distributed-process-simplelocalnet
+    , either
     , lens
     , monad-logger
     , random

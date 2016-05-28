@@ -76,15 +76,12 @@ instance Show LocalSlaveResponse where
   show (LsRespVoid) = "LsRespVoid"
   show (LocalSlaveExecuteResult _) = "LocalSlaveExecuteResult"
 
+
+
+instance Binary LocalSlaveRequest
 instance Binary LocalSlaveResponse
 
 instance NFData LocalSlaveResponse
 instance NFData LocalSlaveRequest
 instance NFData LocalSlaveExecuteResult
-
-instance Binary (RemoteClosureResult BS.ByteString)
-instance Binary CachedValType
-instance Binary LocalSlaveRequest
-instance Binary (ResultDescriptor BS.ByteString)
-instance Binary (RemoteValue BS.ByteString)
 

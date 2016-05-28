@@ -38,20 +38,23 @@ import Blast.Distributed.Master
 import Blast.Distributed.Slave
 
 
+
+
 runSimpleLocalRec ::
   (S.Serialize a, S.Serialize b, RemoteClass s a, MonadIO m, MonadLoggerIO m) =>
-  s a -> Bool -> (a -> StateT Int m (LocalExp (a, b))) -> a -> (a -> Bool) -> m (a, b)
-runSimpleLocalRec s shouldOptimize gen a predicate = do
-  (e, count) <- runStateT (gen a) 0
+  s a -> JobDesc m a b -> m (a, b)
+runSimpleLocalRec s (jobDesc@MkJobDesc {..}) = do
+  (e, count) <- runStateT (expGen seed) 0
   infos <- execStateT (analyseLocal e) M.empty
   (infos', e') <- if shouldOptimize
                     then runStdoutLoggingT $ optimize count infos e
                     else return (infos, e)
-  s' <- liftIO $ setSeed s a
-  (a', b) <- evalStateT (runSimpleLocal infos' e') (s', V.empty)
-  case predicate a' of
+  s' <- liftIO $ setSeed s seed
+  (a, b) <- evalStateT (runSimpleLocal infos' e') (s', V.empty)
+  a' <- liftIO $ reportingAction a b
+  case recPredicate a' of
     True -> return (a', b)
-    False -> runSimpleLocalRec s' shouldOptimize gen a' predicate
+    False -> runSimpleLocalRec s' (jobDesc {seed = a'})
 
 
 data RemoteChannels = MkRemoteChannels {
@@ -62,7 +65,7 @@ data RemoteChannels = MkRemoteChannels {
 data SimpleRemote a = MkSimpleRemote {
   slaveChannels :: M.Map Int RemoteChannels
   , availabilityProb :: Float
-  , seed :: Maybe a
+  , seedM :: Maybe a
   , shouldOptimize :: Bool
 }
 
@@ -122,12 +125,12 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
   reset (MkSimpleRemote {..}) slaveId = do
     runStdoutLoggingT $ $(logInfo) $ T.pack ("Resetting node  " ++ show slaveId)
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
-    let req = LsReqReset shouldOptimize (S.encode $ fromJust seed)
+    let req = LsReqReset shouldOptimize (S.encode $ fromJust seedM)
     writeChan iocOutChan req
     LsRespVoid <- readChan iocInChan
     return ()
   setSeed s@(MkSimpleRemote {..}) a = do
-    let s' = s {seed = Just a}
+    let s' = s {seedM = Just a}
     resetAll s'
     return s'
     where

@@ -7,17 +7,16 @@ module Blast.Optimizer
 where
 
 --import Debug.Trace
-import qualified  Data.List as L
 import qualified  Data.Vault.Strict as V
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 import qualified  Data.Map as M
-import            Data.Maybe
 import qualified  Data.Text as T
 
-import            Blast.Types
 import            Blast.Analyser
+import            Blast.Syntax ((<$$>), (<**>))
+import            Blast.Types
 
 
 
@@ -41,11 +40,10 @@ optimized = do
 
 combineClosure :: (MonadLoggerIO m) => ExpClosure a b -> ExpClosure b c -> StateT (Int, Bool) m (ExpClosure a c)
 combineClosure (ExpClosure cf f) (ExpClosure cg g)  = do
-  (count, _) <- get
-  put (count+1, True)
-  lc <- liftIO V.newKey
-  let cfg = FromAppl count lc (Apply (Apply (ConstApply (,)) cf) cg)
-  return $ ExpClosure cfg (\(cf', cg') a -> ((g cg') . (f cf')) a)
+  cfg <- (,) <$$> cf <**> cg
+  return $ ExpClosure cfg (\(cf', cg') a -> do
+    r1 <- f cf' a
+    g cg' r1)
 
 
 fuseClosure :: (MonadLoggerIO m) => InfoMap -> ExpClosure a b -> StateT (Int, Bool) m (ExpClosure a b)
@@ -54,35 +52,27 @@ fuseClosure infos (ExpClosure e f) = do
   return $ ExpClosure e' f
 
 
-fuseRemoteFoldClosure :: (MonadLoggerIO m) => InfoMap -> PreparedFoldClosure a r -> StateT (Int, Bool) m (PreparedFoldClosure a r)
-fuseRemoteFoldClosure infos (PreparedFoldClosure e f) = do
-  e' <- fuseLocal infos e
-  return $  PreparedFoldClosure e' f
 
 fuseRemote :: (MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (Int, Bool) m (RemoteExp a)
-fuseRemote infos (RMap ne key ie g) | refCountInner > 1 = do
+fuseRemote infos (RMap ne key g ie) | refCountInner > 1 = do
     g' <- fuseClosure infos g
     ie' <- fuseRemote infos ie
     --liftIO $ print ("ref = "::String, refCountInner, (getRemoteIndex ie))
-    return $ RMap ne key ie' g'  -- inner expression is shared, will be cached
+    return $ RMap ne key g' ie'   -- inner expression is shared, will be cached
     where
     refCountInner = refCount (getRemoteIndex ie) infos
 
-fuseRemote infos (RMap ne key (RMap _ _ e f) g) = do
+fuseRemote infos (RMap ne key g (RMap _ _ f e)) = do
     f' <- fuseClosure infos f
     g' <- fuseClosure infos g
     fg <- combineClosure f' g'
-    fuseRemote infos $ RMap ne key e fg
+    fuseRemote infos $ RMap ne key fg e
 
 
-fuseRemote infos (RMap n key ie g) = do
+fuseRemote infos (RMap n key g ie) = do
     g' <- fuseClosure infos g
     ie' <- fuseRemote infos ie
-    return $ RMap n key ie' g'
-
-
-
-
+    return $ RMap n key g' ie'
 
 fuseRemote _ e@(RConst _ _ _) = return e
 
@@ -92,23 +82,14 @@ fuseLocal infos (Collect n key e) = do
   e' <- fuseRemote infos e
   return $ Collect n key e'
 
-fuseLocal infos (FromAppl n key e) = do
-  e' <- fuseAppl infos e
-  return $ FromAppl n key e'
 
-fuseLocal infos (LMap n key e f) = do
+fuseLocal infos (FMap n key f e) = do
+  f' <- fuseLocal infos f
   e' <- fuseLocal infos e
-  return $ LMap n key e' f
+  return $ FMap n key f' e'
 
 fuseLocal _ e@(LConst _ _ _) = return e
 
-
-fuseAppl :: (MonadLoggerIO m) => InfoMap -> ApplyExp a -> StateT (Int, Bool) m (ApplyExp a)
-fuseAppl infos (Apply f e) = do
-  f' <- fuseAppl infos f
-  e' <- fuseLocal infos e
-  return $ Apply f' e'
-fuseAppl _ (ConstApply e) = return (ConstApply e)
 
 
 

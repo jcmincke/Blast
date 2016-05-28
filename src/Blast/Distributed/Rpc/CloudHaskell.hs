@@ -29,8 +29,7 @@ import            Control.Distributed.Process hiding (newChan)
 import            Control.Distributed.Process.Backend.SimpleLocalnet
 import            Control.Distributed.Process.Extras.Internal.Types  (ExitReason(..))
 import            Control.Distributed.Process.Extras.Time (Delay(..))
-import            Control.Distributed.Process.ManagedProcess as DMP hiding (runProcess)
-import            Control.Distributed.Process.Node (LocalNode)
+import            Control.Distributed.Process.ManagedProcess as DMP hiding (runProcess, stop)
 
 import            Data.Binary
 import qualified  Data.ByteString as BS
@@ -55,20 +54,17 @@ import            Blast.Distributed.Slave
 
 
 
-data JobDesc a b = MkJobDesc {
-  shouldOptimize :: Bool
-  , seed :: a
-  , expGen :: a -> StateT Int (LoggingT IO) (LocalExp (a, b))
-  , recPredicate :: a -> Bool
-  }
+data RpcRequestControl =
+  RpcRequestControlStop
 
 data RpcResponseControl =
   RpcResponseControlError String
+  |RpcResponseControlStopped
 
 data SlaveInfo = MkSlaveInfo {
   _slaveIndex :: Int
   , _slaveNodeId :: NodeId
-  , _slaveRequestChannel :: Chan (Either () LocalSlaveRequest)
+  , _slaveRequestChannel :: Chan (Either RpcRequestControl LocalSlaveRequest)
   , _slaveResponseChannel :: Chan (Either RpcResponseControl LocalSlaveResponse)
   }
 
@@ -83,13 +79,15 @@ instance Binary SlaveControl
 
 
 slaveProcess :: forall a b . (S.Serialize a, Typeable a, Typeable b) =>
-                JobDesc a b -> Int -> Process ()
+                JobDesc (LoggingT IO) a b -> Int -> Process ()
 slaveProcess (MkJobDesc {..}) slaveIdx = do
   liftIO $ putStrLn $ "starting slave process: " ++ show slaveIdx
   let slaveState = MkLocalSlave slaveIdx M.empty V.empty expGen
 
   let (server::ProcessDefinition (LocalSlave (LoggingT IO) a b)) = defaultProcess {
       apiHandlers = [handleCall handle]
+    , exitHandlers = [handleExit exitHandler]
+    , shutdownHandler = shutdownHandler
     , unhandledMessagePolicy = Drop
     }
   serve slaveState (\ls -> return $ InitOk ls Infinity) server
@@ -102,6 +100,12 @@ slaveProcess (MkJobDesc {..}) slaveIdx = do
     liftIO $ putStrLn "slaveProcess: processed cmd"
     liftIO $ print resp'
     replyWith resp' (ProcessContinue ls')
+  exitHandler _ _ () = do
+    liftIO $ putStrLn "slave exit"
+    return $ ProcessStop ExitShutdown
+  shutdownHandler _ _ = do
+    liftIO $ putStrLn "slave shutdown"
+    return $ ()
 
 
 {-
@@ -124,7 +128,6 @@ data RpcState a = MkRpcState {
   rpcSlaves :: M.Map Int SlaveInfo
   -- not sure we should store it there since it is in the job desc
   , rpcSeed :: Maybe a
-  , rpcLocalNode :: LocalNode
 }
 
 
@@ -201,29 +204,58 @@ instance (S.Serialize a) => RemoteClass RpcState a where
       liftIO $ putStrLn "setSeed: after "
       return ()
   -- todo to implement : shutting down slaves
-  stop _ = return ()
+  stop (MkRpcState {..}) = do
+    let slaveInfos = M.elems rpcSlaves
+    mapM_ (\(MkSlaveInfo {..}) -> do
+      writeChan _slaveRequestChannel (Left RpcRequestControlStop)
+      _ <- readChan _slaveResponseChannel
+      -- todo add error management
+      return ()
+      ) slaveInfos
 
-startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) => JobDesc a b ->
+
+
+startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) => JobDesc (LoggingT IO) a b ->
    (Int -> Closure (Process())) -> (a -> b -> IO()) -> Backend -> [NodeId] -> Process ()
-startClientRpc theJobDesc slaveClosure k backend nodeIds = do
---  slavePids <- mapM (\(nodeId, slaveIdx) -> spawn nodeId (slaveClosure slaveIdx )) $ zip nodeIds [0..]
---  liftIO $ print slavePids
-  slaveInfos <- liftIO $ mapM (\(i, nodeId) -> mkSlaveInfo i nodeId) $ L.zip [0..] nodeIds
-  let slaveInfoMap = M.fromList slaveInfos
-  -- create processes that handle RPC
-  _ <- mapM (\slaveInfo -> spawnLocal (startOneClientRpc slaveInfo slaveClosure)) $ M.elems slaveInfoMap
-  localNode  <- liftIO $ newLocalNode backend
-  let rpcState = MkRpcState slaveInfoMap Nothing localNode
-  liftIO $ do
-    (a, b) <- runStdoutLoggingT $ runRec 0 rpcState theJobDesc
-    k a b
+startClientRpc theJobDesc slaveClosure k backend _ = do
+  loop 0 theJobDesc
   where
   mkSlaveInfo i nodeId = do
     requestChan <- newChan
     responseChannel <- newChan
     return $ (i, MkSlaveInfo i nodeId requestChan responseChannel)
-  runRec :: Int -> RpcState a -> JobDesc a b -> LoggingT IO (a, b)
-  runRec n rpc (jobDesc@MkJobDesc {..}) = do
+  findSlaveNodes = do
+    selfNode <- getSelfNode
+    nodeIds <- liftIO $ findPeers backend 1000000
+    return $ nodeIds L.\\ [selfNode]
+  loop :: Int -> JobDesc (LoggingT IO) a b -> Process ()
+  loop n (jobDesc@MkJobDesc {..}) = do
+    nodeIds <- findSlaveNodes
+    case nodeIds of
+      [] -> do
+        liftIO $ putStrLn "No node found, retrying"
+        liftIO $ threadDelay 5000000
+        loop n jobDesc
+      _ -> do
+        liftIO $ putStrLn ("Nodes found: " ++ show nodeIds)
+      --  liftIO $ getLine
+        slaveInfos <- liftIO $ mapM (\(i, nodeId) -> mkSlaveInfo i nodeId) $ L.zip [0..] nodeIds
+        let slaveInfoMap = M.fromList slaveInfos
+        -- create processes that handle RPC
+        mapM_ (\slaveInfo -> spawnLocal (startOneClientRpc slaveInfo slaveClosure)) $ M.elems slaveInfoMap
+        let rpcState = MkRpcState slaveInfoMap Nothing
+        (a, b) <- liftIO $ do runStdoutLoggingT $ runComputation 0 rpcState jobDesc
+        liftIO $ stop rpcState
+        a' <- liftIO $ reportingAction a b
+        case recPredicate a of
+          True -> liftIO $ k a b
+          False -> do let jobDesc' = jobDesc {seed = a'}
+                      liftIO $ putStrLn "iteration finished"
+                      --liftIO $ getLine
+                      loop (n+1) jobDesc'
+
+  runComputation :: Int -> RpcState a -> JobDesc (LoggingT IO) a b -> LoggingT IO (a, b)
+  runComputation n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
     (e, count) <- runStateT (expGen seed) 0
     infos <- execStateT (analyseLocal e) M.empty
@@ -231,27 +263,25 @@ startClientRpc theJobDesc slaveClosure k backend nodeIds = do
                       then runStdoutLoggingT $ optimize count infos e
                       else return (infos, e)
     rpc' <- liftIO $ setSeed rpc seed
-    (a', b) <- evalStateT (runSimpleLocal infos' e') (rpc', V.empty)
-    case recPredicate a' of
-      True -> return (a', b)
-      False -> do let jobDesc' = jobDesc {seed = a'}
-                  runRec (n+1) rpc' jobDesc'
+    evalStateT (runSimpleLocal infos' e') (rpc', V.empty)
+
 
 
 
 startOneClientRpc :: SlaveInfo -> (Int -> Closure (Process ())) -> Process ()
 startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
   slavePid <- spawn _slaveNodeId (slaveClosure _slaveIndex)
+  liftIO $ print ("slave pid ", slavePid)
   catchExit
-    (localProcess slavePid)
-    (\slavePid' (_::Bool) -> do
-      liftIO $ putStrLn ("stopping slave :" ++ show slavePid)
-      exit slavePid' True
+    (localProcess 0 slavePid)
+    (\slavePid' () -> do
+      liftIO $ putStrLn ("stopping slave from handler:" ++ show slavePid)
+      exit slavePid' ()
      -- shutdown slavePid
       )
   where
-  localProcess :: ProcessId -> Process ()
-  localProcess slavePid  = do
+  localProcess :: Int -> ProcessId -> Process ()
+  localProcess nbError slavePid = do
     requestE <- liftIO $ readChan _slaveRequestChannel
     case requestE of
       Right request -> do
@@ -261,23 +291,37 @@ startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
         case respE of
           Right resp -> do
             liftIO $ writeChan _slaveResponseChannel $ Right resp
-          Left e -> liftIO $ writeChan _slaveResponseChannel $ Left $ RpcResponseControlError $ show e
-        localProcess slavePid
+            localProcess 0 slavePid
+          Left e | nbError < 10 -> do
+            liftIO $ putStrLn ("error: "++show e)
+            liftIO $ threadDelay 5000000
+            -- todo deprecated, fix me
+            liftIO $ unGetChan _slaveRequestChannel requestE
+            newSlavePid <- spawn _slaveNodeId (slaveClosure _slaveIndex)
+            localProcess (nbError+1) newSlavePid
+          Left e  -> do
+            liftIO $ writeChan _slaveResponseChannel $ Left $ RpcResponseControlError $ show e
+            localProcess nbError slavePid
+      Left RpcRequestControlStop -> do
+              liftIO $ putStrLn ("stopping slave in a controlled way:" ++ show slavePid)
+              exit slavePid ()
+              liftIO $ writeChan _slaveResponseChannel $ Left $ RpcResponseControlStopped
+              liftIO $ putStrLn "Terminating client process"
 
 
 
 runRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) =>
   RemoteTable
   -> [String]
-  -> JobDesc a b
+  -> JobDesc (LoggingT IO) a b
   -> (Int -> Closure (Process()))
-  -> (a -> b -> IO())
+  -> (a -> b -> IO ())
   -> IO()
 runRpc rtable args jobDesc slaveClosure k = do
   case args of
     ["master", host, port] -> do
       backend <- initializeBackend host port rtable
-      startMaster backend  (startClientRpc jobDesc slaveClosure k backend)
+      startMaster backend (startClientRpc jobDesc slaveClosure k backend)
       putStrLn ("End")
     ["slave", host, port] -> do
       backend <- initializeBackend host port rtable

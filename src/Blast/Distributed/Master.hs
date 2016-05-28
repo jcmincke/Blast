@@ -18,7 +18,6 @@ import            Control.Monad.Trans.State
 
 import qualified  Data.List as L
 import qualified  Data.Serialize as S
-import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
 
 import Blast.Internal.Types
@@ -51,7 +50,7 @@ createLocalCachedRemoteValue :: LocalExp a -> RemoteValue a
 createLocalCachedRemoteValue _ = CachedRemoteValue
 
 runSimpleRemoteOneSlaveNoRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x , V.Vault) m ()
-runSimpleRemoteOneSlaveNoRet slaveId m oe@(RMap n _ e (ExpClosure ce _)) = do
+runSimpleRemoteOneSlaveNoRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
   s <- getRemote
   r <- liftIO $ execute s slaveId n (createLocalCachedRemoteValue ce) (createRemoteCachedRemoteValue e) (ResultDescriptor False True :: ResultDescriptor ())
   case r of
@@ -85,7 +84,7 @@ runSimpleRemoteOneSlaveNoRet slaveId _ (RConst n _ a) = do
 runSimpleRemoteOneSlaveRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m a
 
 
-runSimpleRemoteOneSlaveRet slaveId m oe@(RMap n _ e (ExpClosure ce _)) = do
+runSimpleRemoteOneSlaveRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
   s <- getRemote
   r <- liftIO $ execute s slaveId n (createLocalCachedRemoteValue ce) (createRemoteCachedRemoteValue e) (ResultDescriptor True True)
   case r of
@@ -117,7 +116,7 @@ runSimpleRemoteOneSlaveRet slaveId _rr (RConst n _ a) = do
 
 
 runSimpleRemoteRet ::(S.Serialize a, Chunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m a
-runSimpleRemoteRet m oe@(RMap _ _ _ (ExpClosure ce _)) = do
+runSimpleRemoteRet m oe@(RMap _ _ (ExpClosure ce _) _) = do
   _ <- runSimpleLocal m ce
   s <- getRemote
   vault <- getVault
@@ -136,9 +135,10 @@ runSimpleRemoteRet m e = do
   return $ unChunk r
 
 
+
 runSimpleRemoteNoRet ::(S.Serialize a, Chunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m ()
 
-runSimpleRemoteNoRet m oe@(RMap _ _ _ (ExpClosure ce _)) = do
+runSimpleRemoteNoRet m oe@(RMap _ _ (ExpClosure ce _) _) = do
   _ <- runSimpleLocal m ce
   s <- getRemote
   vault <- getVault
@@ -157,20 +157,11 @@ runSimpleRemoteNoRet m e = do
   _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runSimpleRemoteOneSlaveNoRet slaveId m e) (s, vault)) slaveIds
   return ()
 
---todo specific processing for chunking cst rdd and send them to slaves (could be sequential)
 
-
-
-runLocalFun :: (RemoteClass s x, MonadLoggerIO m) => InfoMap -> ExpClosure a b -> StateT (s x, V.Vault) m (a->b)
+runLocalFun :: (RemoteClass s x, MonadLoggerIO m) => InfoMap -> ExpClosure a b -> StateT (s x, V.Vault) m (a -> IO b)
 runLocalFun m (ExpClosure e f) = do
-  r <- runSimpleLocal m e
-  return $ f r
-{-}
-runRemoteFoldClosure :: (RemoteClass s x, MonadLoggerIO m, S.Serialize r) => InfoMap -> PreparedFoldClosure a r -> StateT (s x, V.Vault) m (r, (r -> a -> r))
-runRemoteFoldClosure m (PreparedFoldClosure e f) = do
-  (c, z) <- runSimpleLocal m e
-  return (z, f c)
--}
+  e' <- runSimpleLocal m e
+  return $ f e'
 
 runSimpleLocal ::(RemoteClass s x, MonadLoggerIO m) => InfoMap -> LocalExp a -> StateT (s x, V.Vault) m a
 runSimpleLocal _ (LConst _ key a) = do
@@ -189,36 +180,18 @@ runSimpleLocal m (Collect _ key e) = do
       setVault (V.insert key a vault')
       return a
 
-runSimpleLocal m (FromAppl _ key e) = do
-  vault <- getVault
-  let cvm = V.lookup key vault
-  case cvm of
-    Just v -> return v
-    Nothing -> do
-      a <- runSimpleAppl m e
-      vault' <- getVault
-      setVault (V.insert key a vault')
-      return a
-
-runSimpleLocal m (LMap _ key e f) = do
+runSimpleLocal m (FMap _ key f e) = do
   vault <- getVault
   let cvm = V.lookup key vault
   case cvm of
     Just v -> return v
     Nothing -> do
       a <- runSimpleLocal m e
-      f' <-  runLocalFun m f
+      f' <-  runSimpleLocal m f
       let r = f' a
       vault' <- getVault
       setVault (V.insert key r vault')
       return r
 
-
-runSimpleAppl ::(RemoteClass s x, MonadLoggerIO m) => InfoMap -> ApplyExp a -> StateT (s x, V.Vault) m a
-runSimpleAppl m (Apply f a) = do
-  f' <- runSimpleAppl m f
-  a' <- runSimpleLocal m a
-  return $ f' a'
-runSimpleAppl _ (ConstApply a) = return a
 
 
