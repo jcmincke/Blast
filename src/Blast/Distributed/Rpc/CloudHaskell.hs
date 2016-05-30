@@ -54,6 +54,20 @@ import            Blast.Distributed.Slave
 
 
 
+data RpcConfig = MkRpcConfig {
+  commonConfig :: Config
+  , masterConfig :: MasterConfig
+  , slaveConfig :: SlaveConfig
+  }
+
+data MasterConfig = MkMasterConfig {
+  masterLogger :: forall m a. (MonadIO m) => LoggingT m a -> m a
+  }
+
+data SlaveConfig = MkSlaveConfig {
+  slaveLogger :: forall m a. (MonadIO m) => LoggingT m a -> m a
+  }
+
 data RpcRequestControl =
   RpcRequestControlStop
 
@@ -79,23 +93,24 @@ instance Binary SlaveControl
 
 
 slaveProcess :: forall a b . (S.Serialize a, Typeable a, Typeable b) =>
-                JobDesc (LoggingT IO) a b -> Int -> Process ()
-slaveProcess (MkJobDesc {..}) slaveIdx = do
+                IO RpcConfig -> JobDesc (LoggingT IO) a b -> Int -> Process ()
+slaveProcess configurator (MkJobDesc {..}) slaveIdx = do
+  (MkRpcConfig config _ (MkSlaveConfig {..})) <- liftIO configurator
   liftIO $ putStrLn $ "starting slave process: " ++ show slaveIdx
-  let slaveState = MkLocalSlave slaveIdx M.empty V.empty expGen
+  let slaveState = MkLocalSlave slaveIdx M.empty V.empty expGen config
 
   let (server::ProcessDefinition (LocalSlave (LoggingT IO) a b)) = defaultProcess {
-      apiHandlers = [handleCall handle]
+      apiHandlers = [handleCall (handle slaveLogger)]
     , exitHandlers = [handleExit exitHandler]
     , shutdownHandler = shutdownHandler
     , unhandledMessagePolicy = Drop
     }
   serve slaveState (\ls -> return $ InitOk ls Infinity) server
   where
-  handle ls req = do
+  handle logger ls req = do
     liftIO $ putStrLn "slaveProcess: received cmd"
     liftIO $ print req
-    (resp, ls') <- liftIO $ runStdoutLoggingT $ runCommand ls req
+    (resp, ls') <- liftIO $ logger $ runCommand ls req
     let resp' = force resp
     liftIO $ putStrLn "slaveProcess: processed cmd"
     liftIO $ print resp'
@@ -106,23 +121,6 @@ slaveProcess (MkJobDesc {..}) slaveIdx = do
   shutdownHandler _ _ = do
     liftIO $ putStrLn "slave shutdown"
     return $ ()
-
-
-{-
--- process that makes a call to a slave
-mkRpcProcess :: forall a. (S.Serialize a) =>
-  a -> LocalSlaveRequest -> Chan (Either String LocalSlaveResponse) -> SlaveInfo -> Process()
-mkRpcProcess seed req respChan (MkSlaveInfo {..}) = do
-  liftIO $ putStrLn "mkRpcProcess: before call "
-  (respE::Either ExitReason LocalSlaveResponse) <- safeCall _slaveProcessId ( req)
-  liftIO $ putStrLn "mkRpcProcess: after call "
-  case respE of
-    Right resp -> do
-      liftIO $ writeChan respChan $ Right resp
-    Left e -> liftIO $ writeChan respChan $ Left $ show e
-
--}
-
 
 data RpcState a = MkRpcState {
   rpcSlaves :: M.Map Int SlaveInfo
@@ -168,8 +166,7 @@ instance (S.Serialize a) => RemoteClass RpcState a where
           Left err -> error ("decode failed: " ++ err)
           Right r -> return (ExecRes $ Just r)
       ExecResError err -> return (ExecResError err)
-  cache rpc@(MkRpcState {..}) slaveIdx i a = do
-    let bs = S.encode a
+  cache rpc@(MkRpcState {..}) slaveIdx i bs = do
     let req = LsReqCache i bs
     (LsRespBool b) <- rpcCall rpc slaveIdx req
     return b
@@ -187,7 +184,7 @@ instance (S.Serialize a) => RemoteClass RpcState a where
 
   reset rpc@(MkRpcState {..}) slaveIdx = do
     let seed = fromJust rpcSeed
-    let request = LsReqReset True (S.encode seed)
+    let request = LsReqReset (S.encode seed)
     LsRespVoid <- rpcCall rpc slaveIdx request
     return ()
 
@@ -215,9 +212,9 @@ instance (S.Serialize a) => RemoteClass RpcState a where
 
 
 
-startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) => JobDesc (LoggingT IO) a b ->
+startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) => RpcConfig -> JobDesc (LoggingT IO) a b ->
    (Int -> Closure (Process())) -> (a -> b -> IO()) -> Backend -> [NodeId] -> Process ()
-startClientRpc theJobDesc slaveClosure k backend _ = do
+startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc slaveClosure k backend _ = do
   loop 0 theJobDesc
   where
   mkSlaveInfo i nodeId = do
@@ -244,7 +241,7 @@ startClientRpc theJobDesc slaveClosure k backend _ = do
         -- create processes that handle RPC
         mapM_ (\slaveInfo -> spawnLocal (startOneClientRpc slaveInfo slaveClosure)) $ M.elems slaveInfoMap
         let rpcState = MkRpcState slaveInfoMap Nothing
-        (a, b) <- liftIO $ do runStdoutLoggingT $ runComputation 0 rpcState jobDesc
+        (a, b) <- liftIO $ do logger $ runComputation rpcConfig 0 rpcState jobDesc
         liftIO $ stop rpcState
         a' <- liftIO $ reportingAction a b
         case recPredicate a of
@@ -254,17 +251,17 @@ startClientRpc theJobDesc slaveClosure k backend _ = do
                       --liftIO $ getLine
                       loop (n+1) jobDesc'
 
-  runComputation :: Int -> RpcState a -> JobDesc (LoggingT IO) a b -> LoggingT IO (a, b)
-  runComputation n rpc (MkJobDesc {..}) = do
+  runComputation :: RpcConfig -> Int -> RpcState a -> JobDesc (LoggingT IO) a b -> LoggingT IO (a, b)
+  runComputation (MkRpcConfig (MkConfig {..}) (MkMasterConfig logger) _)  n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
     (e, count) <- runStateT (expGen seed) 0
     infos <- execStateT (analyseLocal e) M.empty
     (infos', e') <- if shouldOptimize
-                      then runStdoutLoggingT $ optimize count infos e
+                      then logger $ optimize count infos e
                       else return (infos, e)
     rpc' <- liftIO $ setSeed rpc seed
-    evalStateT (runSimpleLocal infos' e') (rpc', V.empty)
-
+    (r, _) <- evalStateT (runSimpleLocal infos' e') (rpc', V.empty)
+    return r
 
 
 
@@ -312,16 +309,17 @@ startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
 
 runRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) =>
   RemoteTable
+  -> RpcConfig
   -> [String]
   -> JobDesc (LoggingT IO) a b
   -> (Int -> Closure (Process()))
   -> (a -> b -> IO ())
   -> IO()
-runRpc rtable args jobDesc slaveClosure k = do
+runRpc rtable rpcConfig args jobDesc slaveClosure k = do
   case args of
     ["master", host, port] -> do
       backend <- initializeBackend host port rtable
-      startMaster backend (startClientRpc jobDesc slaveClosure k backend)
+      startMaster backend (startClientRpc rpcConfig jobDesc slaveClosure k backend)
       putStrLn ("End")
     ["slave", host, port] -> do
       backend <- initializeBackend host port rtable

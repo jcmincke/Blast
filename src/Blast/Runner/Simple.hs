@@ -22,8 +22,8 @@ import            Blast.Optimizer
 
 
 
-runRec :: (Monad m, MonadLoggerIO m) => JobDesc m a b -> m (a, b)
-runRec (jobDesc@MkJobDesc {..}) = do
+runRec :: (Monad m, MonadLoggerIO m) => Config -> JobDesc m a b -> m (a, b)
+runRec config@(MkConfig {..}) (jobDesc@MkJobDesc {..}) = do
   $(logInfo) "Analysing"
   (e, count) <- runStateT (expGen seed) 0
   infos <- execStateT (analyseLocal e) M.empty
@@ -38,7 +38,7 @@ runRec (jobDesc@MkJobDesc {..}) = do
     True -> do
       $(logInfo) "Finished"
       return (a', b)
-    False -> runRec (jobDesc {seed = a'})
+    False -> runRec config (jobDesc {seed = a'})
 
 
 

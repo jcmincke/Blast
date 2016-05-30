@@ -42,19 +42,19 @@ import Blast.Distributed.Slave
 
 runSimpleLocalRec ::
   (S.Serialize a, S.Serialize b, RemoteClass s a, MonadIO m, MonadLoggerIO m) =>
-  s a -> JobDesc m a b -> m (a, b)
-runSimpleLocalRec s (jobDesc@MkJobDesc {..}) = do
+  Config -> s a -> JobDesc m a b -> m (a, b)
+runSimpleLocalRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   (e, count) <- runStateT (expGen seed) 0
   infos <- execStateT (analyseLocal e) M.empty
   (infos', e') <- if shouldOptimize
                     then runStdoutLoggingT $ optimize count infos e
                     else return (infos, e)
   s' <- liftIO $ setSeed s seed
-  (a, b) <- evalStateT (runSimpleLocal infos' e') (s', V.empty)
+  ((a, b), _) <- evalStateT (runSimpleLocal infos' e') (s', V.empty)
   a' <- liftIO $ reportingAction a b
   case recPredicate a' of
     True -> return (a', b)
-    False -> runSimpleLocalRec s' (jobDesc {seed = a'})
+    False -> runSimpleLocalRec config s' (jobDesc {seed = a'})
 
 
 data RemoteChannels = MkRemoteChannels {
@@ -64,15 +64,14 @@ data RemoteChannels = MkRemoteChannels {
 
 data SimpleRemote a = MkSimpleRemote {
   slaveChannels :: M.Map Int RemoteChannels
-  , availabilityProb :: Float
   , seedM :: Maybe a
-  , shouldOptimize :: Bool
+  , config :: Config
 }
 
 randomSlaveReset :: (S.Serialize a) => SimpleRemote a -> Int -> IO ()
-randomSlaveReset s@(MkSimpleRemote {..}) slaveId= do
+randomSlaveReset s@(MkSimpleRemote {config = MkConfig {..}}) slaveId= do
   r <- randomRIO (0.0, 1.0)
-  when (r > availabilityProb) $ reset s slaveId
+  when (r > slaveAvailability) $ reset s slaveId
 
 
 
@@ -100,9 +99,8 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
           Left err -> error ("decode failed: " ++ err)
           Right r -> return (ExecRes $ Just r)
       ExecResError err -> return (ExecResError err)
-  cache (MkSimpleRemote {..}) slaveId i a = do
+  cache (MkSimpleRemote {..}) slaveId i bs = do
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
-    let bs = S.encode a
     let req = LsReqCache i bs
     let !req' = force req
     writeChan iocOutChan req'
@@ -125,7 +123,7 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
   reset (MkSimpleRemote {..}) slaveId = do
     runStdoutLoggingT $ $(logInfo) $ T.pack ("Resetting node  " ++ show slaveId)
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
-    let req = LsReqReset shouldOptimize (S.encode $ fromJust seedM)
+    let req = LsReqReset (S.encode $ fromJust seedM)
     writeChan iocOutChan req
     LsRespVoid <- readChan iocInChan
     return ()
@@ -148,11 +146,11 @@ encodeRemoteValue CachedRemoteValue = CachedRemoteValue
 
 
 createSimpleRemote :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>
-      Float -> Bool -> Int -> (a -> StateT Int m (LocalExp (a, b)))
+      Config -> Int -> (a -> StateT Int m (LocalExp (a, b)))
       -> m (SimpleRemote a)
-createSimpleRemote slaveAvailability shouldOptimize nbSlaves expGen = do
+createSimpleRemote cf@(MkConfig {..}) nbSlaves expGen = do
   m <- liftIO $ foldM proc M.empty [0..nbSlaves-1]
-  return $ MkSimpleRemote m slaveAvailability Nothing shouldOptimize
+  return $ MkSimpleRemote m Nothing cf
   where
   proc acc i = do
     (iChan, oChan, ls) <- createOneSlave i M.empty
@@ -163,7 +161,7 @@ createSimpleRemote slaveAvailability shouldOptimize nbSlaves expGen = do
   createOneSlave slaveId infos = do
     iChan <- newChan
     oChan <- newChan
-    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty expGen)
+    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty expGen cf)
 
 
 runSlave :: (S.Serialize a) => Chan LocalSlaveRequest -> Chan LocalSlaveResponse -> LocalSlave (LoggingT IO) a b -> IO ()

@@ -25,27 +25,27 @@ class Joinable a b where
 fun :: (a -> b) -> Fun a b
 fun f = Pure (return . f)
 
-closure :: forall a b c. (S.Serialize c, Show c) => LocalExp c -> (c -> a -> b) -> Fun a b
+closure :: forall a b c. (S.Serialize c, Show c, ChunkableFreeVar c) => LocalExp c -> (c -> a -> b) -> Fun a b
 closure ce f = Closure ce (\c a -> return $ f c a)
 
 
 foldFun :: (r -> a -> r) -> FoldFun a r
 foldFun f = FoldPure (\r a -> return $ f r a)
 
-foldClosure :: forall a r c. (S.Serialize c, Show c) => LocalExp c -> (c -> r -> a -> r) -> FoldFun a r
+foldClosure :: forall a r c. (S.Serialize c, Show c, ChunkableFreeVar c) => LocalExp c -> (c -> r -> a -> r) -> FoldFun a r
 foldClosure ce f = FoldClosure ce (\c r a -> return $ f c r a)
 
 funIO :: (a -> IO b) -> Fun a b
 funIO f = Pure f
 
-closureIO :: forall a b c. (S.Serialize c, Show c) => LocalExp c -> (c -> a -> IO b) -> Fun a b
+closureIO :: forall a b c. (S.Serialize c, Show c, ChunkableFreeVar c) => LocalExp c -> (c -> a -> IO b) -> Fun a b
 closureIO ce f = Closure ce f
 
 
 foldFunIO :: (r -> a -> IO r) -> FoldFun a r
 foldFunIO f = FoldPure f
 
-foldClosureIO :: forall a r c. (S.Serialize c, Show c) => LocalExp c -> (c -> r -> a -> IO r) -> FoldFun a r
+foldClosureIO :: forall a r c. (S.Serialize c, Show c, ChunkableFreeVar c) => LocalExp c -> (c -> r -> a -> IO r) -> FoldFun a r
 foldClosureIO ce f = FoldClosure ce f
 
 
@@ -126,8 +126,9 @@ lcst a = do
   return $ LConst index key a
 
 
-rjoin :: (MonadIO m, Show a, S.Serialize a, S.Serialize b, S.Serialize (JoinedVal a b),
-          Joinable a b, Chunkable a, Chunkable b, Chunkable (JoinedVal a b), NodeIndexer s) =>
+rjoin :: (MonadIO m, Show a, S.Serialize a, S.Serialize b, S.Serialize (JoinedVal a b)
+          , Joinable a b, Chunkable a, Chunkable b, Chunkable (JoinedVal a b), NodeIndexer s
+          , ChunkableFreeVar a) =>
          RemoteExp a -> RemoteExp b -> StateT s m (RemoteExp (JoinedVal a b))
 rjoin a b = do
   a' <- collect a
@@ -135,6 +136,13 @@ rjoin a b = do
   key <- liftIO V.newKey
   let cs = ExpClosure a' (\av bv -> return $ join av bv)
   return $ RMap index key cs b
+
+--class Relational a where
+--  rjoin' :: (MonadIO m, Show a, S.Serialize a, S.Serialize b, S.Serialize (JoinedVal a b)
+--            , Joinable a b, Chunkable a, Chunkable b, Chunkable (JoinedVal a b), NodeIndexer s
+--            , ChunkableFreeVar a) =>
+--            RemoteExp a -> RemoteExp b -> StateT s m (RemoteExp (JoinedVal a b))
+
 
 
 lfold :: (MonadIO m, Show a, Show r, Foldable t, NodeIndexer s) =>
@@ -153,7 +161,8 @@ lfold' f zero a = do
   lfold f' zero a
 
 rfold :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), Chunkable (t r)
-          , S.Serialize r, Applicative t, Foldable t, NodeIndexer s) =>
+          , S.Serialize r, Applicative t, Foldable t, NodeIndexer s
+          , ChunkableFreeVar r) =>
          FoldFun a r -> LocalExp r -> RemoteExp (t a) -> StateT s m (RemoteExp (t r))
 rfold fp zero e = do
   index <- nextIndex
@@ -174,7 +183,8 @@ rfold fp zero e = do
 
 
 rfold' :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), Chunkable (t r), S.Serialize r
-           , Applicative t, Foldable t, NodeIndexer s) =>
+           , Applicative t, Foldable t, NodeIndexer s
+           , ChunkableFreeVar r) =>
          FoldFun a r -> (t r -> r) -> LocalExp r -> RemoteExp (t a) -> StateT s m (LocalExp r)
 rfold' f aggregator zero a = do
   rs <- rfold f zero a

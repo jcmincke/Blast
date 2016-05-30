@@ -69,10 +69,16 @@ reporting a b = do
   return a
 
 
-jobDesc = MkJobDesc True 0 expGenerator reporting (\x -> x>=3)
+jobDesc = MkJobDesc 0 expGenerator reporting (\x -> x>=3)
 --jobDesc = MkJobDesc True 0 expGenerator (\x -> False)
 
-slaveClosure = slaveProcess jobDesc
+rpcConfigAction = return $
+  MkRpcConfig
+    (MkConfig True 1.0)
+    (MkMasterConfig runStdoutLoggingT)
+    (MkSlaveConfig runStdoutLoggingT)
+
+slaveClosure = slaveProcess rpcConfigAction jobDesc
 
 remotable ['slaveClosure]
 
@@ -83,7 +89,8 @@ rtable = __remoteTable initRemoteTable
 
 main = do
   args <- getArgs
-  runRpc rtable args jobDesc $(mkClosure 'slaveClosure) k
+  rpcConfig <- rpcConfigAction
+  runRpc rtable rpcConfig args jobDesc $(mkClosure 'slaveClosure) k
   where
   k a b = do
     print a
@@ -92,14 +99,16 @@ main = do
 
 
 rrec = do
-  (a,b) <- runStdoutLoggingT $ runRec jobDesc
+  let cf = MkConfig True 1.0
+  (a,b) <- runStdoutLoggingT $ runRec cf jobDesc
   print a
   print b
 
 
 --runRec :: (MonadIO m, MonadLoggerIO m) => Bool -> (a -> StateT Int m (LocalExp (a, b))) -> a -> (a -> Bool) -> m (a, b)
 rrec' = do
-  (a,b) <- runStdoutLoggingT $ S.runRec jobDesc
+  let cf = MkConfig True 1.0
+  (a,b) <- runStdoutLoggingT $ S.runRec cf jobDesc
   print a
   print "kk"
   print b

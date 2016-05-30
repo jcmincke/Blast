@@ -57,6 +57,12 @@ visitExp n key  m =
   Just (Info _ _ _) -> error ("Node " ++ show n ++ " has already been visited")
   Nothing -> M.insert n (Info 0 Nothing (Just $ makeCacheInfo key)) m
 
+visitLocalExp :: (S.Serialize a) => Int -> LocalKey a -> InfoMap -> InfoMap
+visitLocalExp n key  m =
+  case M.lookup n m of
+  Just (Info _ _ _) -> error ("Node " ++ show n ++ " has already been visited")
+  Nothing -> M.insert n (Info 0 Nothing (Just $ makeLocalCacheInfo key)) m
+
 visitExpNoCache :: Int -> InfoMap -> InfoMap
 visitExpNoCache n m =
   case M.lookup n m of
@@ -90,6 +96,14 @@ visitExpM n key = do
   put $ visitExp n key m
 
 
+visitLocalExpM ::  forall a m. (S.Serialize a, MonadLoggerIO m) =>
+              Int -> LocalKey a  -> StateT InfoMap m ()
+visitLocalExpM n key = do
+  $(logInfo) $ T.pack  ("Visiting node: " ++ show n)
+  m <- get
+  put $ visitLocalExp n key m
+
+
 visitExpNoCacheM :: forall m. (MonadLoggerIO m) =>
   Int ->  StateT InfoMap m ()
 visitExpNoCacheM n = do
@@ -108,7 +122,7 @@ mkRemoteClosure keya keyb (ExpClosure e f) = do
 
 
 wrapClosure :: forall a b c . (S.Serialize a, S.Serialize b, S.Serialize c) =>
-            V.Key c -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
+            LocalKey c -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
 wrapClosure keyc keya keyb f =
     proc
     where
@@ -117,7 +131,7 @@ wrapClosure keyc keya keyb f =
       return $ either (\l -> (l, vault)) id r'
       where
       r = do
-        c <- getVal CachedFreeVar vault keyc cfv
+        c <- getLocalVal CachedFreeVar vault keyc cfv
         av <- getVal CachedArg vault keya a
         brdd <- liftIO $ (f c) av
         let vault' = if shouldCache then V.insert keyb brdd vault else vault
@@ -134,6 +148,15 @@ getVal cvt vault key CachedRemoteValue =
   Just v -> right v
   Nothing -> left $ RemCsResCacheMiss cvt
 
+getLocalVal :: (S.Serialize a, Monad m) =>  CachedValType -> V.Vault -> LocalKey a -> RemoteValue BS.ByteString -> EitherT (RemoteClosureResult b) m a
+getLocalVal _ _ _ (RemoteValue bs) =
+  case S.decode bs of
+  Right v -> right v
+  Left e -> left $ ExecResError (show e)
+getLocalVal cvt vault key CachedRemoteValue =
+  case V.lookup key vault of
+  Just (v, _) -> right v
+  Nothing -> left $ RemCsResCacheMiss cvt
 
 
 getRemoteIndex :: RemoteExp a -> Int
@@ -149,7 +172,7 @@ getLocalIndex (LConst i _ _) = i
 getLocalIndex (Collect i _ _) = i
 getLocalIndex (FMap i _ _ _) = i
 
-getLocalVaultKey :: LocalExp a -> V.Key a
+getLocalVaultKey :: LocalExp a -> LocalKey a
 getLocalVaultKey (LConst _ k _) = k
 getLocalVaultKey (Collect _ k _) = k
 getLocalVaultKey (FMap _ k _ _) = k
@@ -169,6 +192,26 @@ makeCacheInfo key =
   makeUnCacher k vault = V.delete k vault
 
   makeIsCached :: V.Key a -> V.Vault -> Bool
+  makeIsCached k vault =
+    case V.lookup k vault of
+    Just _ -> True
+    Nothing -> False
+
+
+makeLocalCacheInfo :: (S.Serialize a) =>LocalKey a -> CacheInfo
+makeLocalCacheInfo key =
+  MkCacheInfo (makeCacher key) (makeUnCacher key) (makeIsCached key)
+  where
+  makeCacher :: (S.Serialize a) => LocalKey a -> BS.ByteString -> V.Vault -> V.Vault
+  makeCacher k bs vault =
+    case S.decode bs of
+    Left e -> error $ ("Cannot deserialize value: " ++ e)
+    Right a -> V.insert k (a, Nothing) vault
+
+  makeUnCacher :: LocalKey a -> V.Vault -> V.Vault
+  makeUnCacher k vault = V.delete k vault
+
+  makeIsCached :: LocalKey a -> V.Vault -> Bool
   makeIsCached k vault =
     case V.lookup k vault of
     Just _ -> True
@@ -195,19 +238,19 @@ analyseRemote (RConst n key _) =
 analyseSerializeLocal :: (S.Serialize a, MonadLoggerIO m) => LocalExp a -> StateT InfoMap m ()
 
 analyseSerializeLocal(LConst n key _) =
-  unlessM (wasVisitedM n) $ visitExpM n key
+  unlessM (wasVisitedM n) $ visitLocalExpM n key
 
 analyseSerializeLocal (Collect n key e) =
   unlessM (wasVisitedM n) $ do
     analyseRemote e
     increaseRefM (getRemoteIndex e)
-    visitExpM n key
+    visitLocalExpM n key
 
 analyseSerializeLocal (FMap n key f e) =
   unlessM (wasVisitedM n) $ do
     analyseLocal f
     analyseLocal e
-    visitExpM n key
+    visitLocalExpM n key
 
 analyseLocal :: (MonadLoggerIO m) => LocalExp a -> StateT InfoMap m ()
 

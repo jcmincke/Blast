@@ -30,7 +30,8 @@ class (S.Serialize x) => RemoteClass s x where
   getNbSlaves :: s x -> Int
   status ::  s x -> Int -> IO Bool
   execute :: (S.Serialize c, S.Serialize a, S.Serialize b) => s x -> Int -> RemoteClosureIndex -> (RemoteValue c) -> (RemoteValue a) -> ResultDescriptor b -> IO (RemoteClosureResult b)
-  cache :: (S.Serialize a) => s x -> Int -> Int -> a -> IO Bool
+  cache :: s x -> Int -> Int -> BS.ByteString -> IO Bool
+  cache' :: (S.Serialize a) => s x -> Int -> Int -> a -> IO Bool
   uncache :: s x -> Int -> Int -> IO Bool
   isCached :: s x -> Int -> Int -> IO Bool
   reset :: s x -> Int -> IO ()
@@ -45,7 +46,7 @@ data LocalSlaveRequest =
   |LsReqCache Int BS.ByteString
   |LsReqUncache Int
   |LsReqIsCached Int
-  |LsReqReset Bool BS.ByteString  -- Bool = should optimize TODO : remove (use job desc principle)
+  |LsReqReset BS.ByteString
   deriving (Generic)
 
 instance Show LocalSlaveRequest where
@@ -53,7 +54,7 @@ instance Show LocalSlaveRequest where
   show (LsReqCache _ _) = "LsReqCache"
   show (LsReqUncache  _) = "LsReqUncache"
   show (LsReqIsCached  _) = "LsReqIsCached"
-  show (LsReqReset  _ _) = "LsReqReset"
+  show (LsReqReset _) = "LsReqReset"
   show (LsReqStatus) = "LsReqStatus"
 
 data LocalSlaveExecuteResult =

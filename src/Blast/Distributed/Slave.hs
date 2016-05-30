@@ -33,18 +33,19 @@ data LocalSlave m a b = MkLocalSlave {
   , infos :: M.Map Int Info
   , vault :: V.Vault
   , expGen :: a -> StateT Int m (LocalExp (a, b))
+  , config :: Config
   }
 
 
 
 runCommand :: (S.Serialize a, MonadLoggerIO m) => LocalSlave m a b -> LocalSlaveRequest -> m (LocalSlaveResponse, LocalSlave m a b)
-runCommand ls@(MkLocalSlave {..}) (LsReqReset shouldOptimize bs) = do
+runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
   case S.decode bs of
     Left e -> error e
     Right a -> do
       (e, count) <- runStateT (expGen a) 0
       infos1 <- execStateT (analyseLocal e) M.empty
-      (infos2, _) <- if shouldOptimize
+      (infos2, _) <- if (shouldOptimize config)
                         then optimize count infos1 e
                         else return (infos1, e)
       let ls' = ls {infos = infos2, vault = V.empty}

@@ -77,27 +77,49 @@ data Rdd a = Rdd [a]
 
 data Fun a b =
   Pure (a -> IO b)
-  |forall c . (S.Serialize c, Show c) => Closure (LocalExp c) (c -> a -> IO b)
+  |forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => Closure (LocalExp c) (c -> a -> IO b)
 
 data FoldFun a r =
   FoldPure (r -> a -> IO r)
-  |forall c . (S.Serialize c, Show c) => FoldClosure (LocalExp c) (c -> r -> a -> IO r)
+  |forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => FoldClosure (LocalExp c) (c -> r -> a -> IO r)
 
 data ExpClosure a b =
-  forall c . (S.Serialize c, Show c) => ExpClosure (LocalExp c) (c -> a -> IO b)
+  forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => ExpClosure (LocalExp c) (c -> a -> IO b)
+
+data Partition a =
+  Singleton Int a
+  |Many [a]
+
+instance Functor Partition where
+  fmap f (Singleton size a) = Singleton size $ f a
+  fmap f (Many as) = Many $ fmap f as
+
+partitionToList :: Partition a -> [a]
+partitionToList (Singleton size a) = L.take size $ L.repeat a
+partitionToList (Many as) = as
 
 class Chunkable a where
-  chunk :: Int -> a -> [a]
+  chunk :: Int -> a -> Partition a
   unChunk :: [a] -> a
+
+class ChunkableFreeVar a where
+  chunk' :: Int -> a -> Partition a
+  chunk' n a = Singleton n a
+  unChunk' :: [a] -> a
+  unChunk' as = L.head as
+
+instance ChunkableFreeVar a
 
 data RemoteExp a where
   RMap :: (S.Serialize a, S.Serialize b, Chunkable a, Chunkable b) => Int -> V.Key b -> ExpClosure a b -> RemoteExp a -> RemoteExp b
   RConst :: (S.Serialize a, Chunkable a) => Int -> V.Key a -> a -> RemoteExp a
 
+type LocalKey a = V.Key (a, Maybe (Partition BS.ByteString))
+
 data LocalExp a where
-  LConst :: Int -> V.Key a -> a -> LocalExp a
-  Collect :: (S.Serialize a, Chunkable a) => Int -> V.Key a -> RemoteExp a -> LocalExp a
-  FMap :: Int -> V.Key b -> LocalExp (a -> b) -> LocalExp a -> LocalExp b
+  LConst :: Int -> LocalKey a -> a -> LocalExp a
+  Collect :: (S.Serialize a, Chunkable a) => Int -> LocalKey a -> RemoteExp a -> LocalExp a
+  FMap :: Int -> LocalKey b -> LocalExp (a -> b) -> LocalExp a -> LocalExp b
 
 
 instance Show (RemoteExp a) where
@@ -113,7 +135,7 @@ instance Show (LocalExp a) where
 -- TODO to improve
 instance Chunkable [a] where
   chunk nbBuckets l =
-    L.reverse $ go [] nbBuckets l
+    Many $ L.reverse $ go [] nbBuckets l
     where
     go acc 1 ls = ls:acc
     go acc n ls = go (L.take nbPerBucket ls : acc) (n-1) (L.drop nbPerBucket ls)
@@ -139,8 +161,7 @@ instance NodeIndexer (Int, a) where
 
 
 data JobDesc m a b = MkJobDesc {
-  shouldOptimize :: Bool
-  , seed :: a
+  seed :: a
   , expGen :: a -> StateT Int m (LocalExp (a, b))
   , reportingAction :: a -> b -> IO a
   , recPredicate :: a -> Bool
@@ -152,5 +173,10 @@ instance Binary CachedValType
 instance Binary (ResultDescriptor BS.ByteString)
 instance Binary (RemoteValue BS.ByteString)
 
+data Config = MkConfig
+  {
+    shouldOptimize :: Bool
+    , slaveAvailability :: Float
+  }
 
 
