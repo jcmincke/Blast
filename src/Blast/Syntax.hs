@@ -66,8 +66,12 @@ foldFunIO f = FoldPure f
 foldClosureIO :: forall a r c. (S.Serialize c, Show c, ChunkableFreeVar c) => LocalExp c -> (c -> r -> a -> IO r) -> FoldFun a r
 foldClosureIO ce f = FoldClosure ce f
 
+mkRMap cs e = do
+  index <- nextIndex
+  key <- liftIO V.newKey
+  return $ RMap index key cs e
 
-rmap :: (MonadIO m, S.Serialize (t a), Chunkable (t a), S.Serialize (t b), Chunkable (t b), Traversable t, NodeIndexer s) =>
+rmap :: (MonadIO m, S.Serialize (t a), Chunkable (t a), S.Serialize (t b), UnChunkable (t b), Traversable t, NodeIndexer s) =>
       Fun a b -> RemoteExp (t a) -> StateT s m (RemoteExp (t b))
 rmap fm e  = do
   index <- nextIndex
@@ -81,7 +85,7 @@ rmap fm e  = do
   mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> mapM (f c) a)
 
 
-rflatmap :: (MonadIO m, S.Serialize (t a), Chunkable (t a), S.Serialize (t b), Chunkable (t b), Foldable t, Monoid (t b), NodeIndexer s) =>
+rflatmap :: (MonadIO m, S.Serialize (t a), Chunkable (t a), S.Serialize (t b), UnChunkable (t b), Foldable t, Monoid (t b), NodeIndexer s) =>
      Fun a (t b) -> RemoteExp (t a) -> StateT s m (RemoteExp (t b))
 rflatmap fp e = do
   index <- nextIndex
@@ -94,7 +98,7 @@ rflatmap fp e = do
     return $ ExpClosure ue (\() a -> foldMap f a)
   mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> foldMap (f c) a)
 
-rfilter :: (MonadIO m, S.Serialize (t a), Chunkable (t a), Applicative t, Foldable t, Monoid (t a), NodeIndexer s) =>
+rfilter :: (MonadIO m, S.Serialize (t a), Chunkable (t a), UnChunkable (t a), Applicative t, Foldable t, Monoid (t a), NodeIndexer s) =>
         Fun a Bool -> RemoteExp (t a) -> StateT s m (RemoteExp (t a))
 rfilter p e = do
   index <- nextIndex
@@ -116,7 +120,7 @@ rfilter p e = do
         return r)
 
 
-collect :: (MonadIO m, S.Serialize a, Chunkable a, NodeIndexer s) =>
+collect :: (MonadIO m, S.Serialize a, UnChunkable a, NodeIndexer s) =>
         RemoteExp a -> StateT s m (LocalExp a)
 collect a = do
   index <- nextIndex
@@ -159,7 +163,7 @@ lfold' f zero a = do
   f' <- lcst f
   lfold f' zero a
 
-rfold :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), Chunkable (t r)
+rfold :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), UnChunkable (t r)
           , S.Serialize r, Applicative t, Foldable t, NodeIndexer s
           , ChunkableFreeVar r) =>
          FoldFun a r -> LocalExp r -> RemoteExp (t a) -> StateT s m (RemoteExp (t r))
@@ -181,7 +185,7 @@ rfold fp zero e = do
                 return $ pure r)
 
 
-rfold' :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), Chunkable (t r), S.Serialize r
+rfold' :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), UnChunkable (t r), S.Serialize r
            , Applicative t, Foldable t, NodeIndexer s
            , ChunkableFreeVar r) =>
          FoldFun a r -> (t r -> r) -> LocalExp r -> RemoteExp (t a) -> StateT s m (LocalExp r)
@@ -205,18 +209,18 @@ f <$$> e = lcst f <**> e
 
 
 instance (Show a , Show b) => Joinable a b where
-  join a b = trace (show ("$$$$$$$$$$$$$$$$", a, b)) $ Just (a, b)
+  join a b = Just (a, b)
 
 instance (Eq k, Show k,Show a, Show b) => Joinable (KeyedVal k a) (KeyedVal k b) where
-  join (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = trace (show ("=================", k1, k2)) $  Just (KeyedVal k1 a, KeyedVal k2 b)
-  join (KeyedVal k1 a) (KeyedVal k2 b)  = trace (show ("++++++++++++", k1, k2)) $ Nothing
+  join (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = Just (KeyedVal k1 a, KeyedVal k2 b)
+  join (KeyedVal k1 a) (KeyedVal k2 b) = Nothing
 
 fromList' :: (Applicative t, Foldable t, Monoid (t a)) => [a] -> t a
 fromList' l = foldMap pure l
 
 
 rjoin :: (MonadIO m, Show (t a), S.Serialize (t a), S.Serialize (t b), S.Serialize (t (a, b)), Traversable t, Applicative t
-          , Joinable a b, Chunkable (t a), Chunkable (t b), Chunkable (t (a, b)), Monoid (t (a, b)), NodeIndexer s
+          , Joinable a b, UnChunkable (t a), Chunkable (t b), UnChunkable (t (a, b)), Monoid (t (a, b)), NodeIndexer s
           , ChunkableFreeVar (t a)) =>
          RemoteExp (t a) -> RemoteExp (t b) -> StateT s m (RemoteExp (t (a, b)))
 rjoin a b = do
@@ -246,6 +250,8 @@ instance (Hashable k) => Chunkable [KeyedVal k v] where
     proc bucket' kv@(KeyedVal k _) = let
       i = hash k `mod` nbBuckets
       in M.insertWith (++) i [kv] bucket'
+
+instance (Hashable k) => UnChunkable [KeyedVal k v] where
   unChunk l = L.concat l
 
 
@@ -256,8 +262,10 @@ instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v)), Chunkable (t (Ke
 
 rKeyedJoin :: (MonadIO m, Eq k, Show k, Show (t (KeyedVal k a)), S.Serialize (t (KeyedVal k a)), S.Serialize(t (KeyedVal k b)), S.Serialize (t (KeyedVal k (a, b))), Traversable t, Applicative t
           , Joinable (KeyedVal k a) (KeyedVal k b)
-          , Chunkable (t (KeyedVal k a)), Chunkable (t (KeyedVal k b))
-          , Chunkable (t (KeyedVal k (a, b))), Monoid (t (KeyedVal k (a, b))), NodeIndexer s
+          , UnChunkable (t (KeyedVal k a)), Chunkable (t (KeyedVal k b))
+          , Chunkable (t (KeyedVal k a))
+          , UnChunkable (t (KeyedVal k (a, b)))
+          , Monoid (t (KeyedVal k (a, b))), NodeIndexer s
           , ChunkableFreeVar (t (KeyedVal k a))
           , Show (t (KeyedVal k b))
           , Show (OptiT t k a)
@@ -273,15 +281,29 @@ rKeyedJoin a b = do
   let cs = ExpClosure ja (\(OptiT av) bv -> trace (show av) $ trace (show bv) $ return $ fromList' $ catMaybes [doJoin a b | a <- toList av, b <- toList bv])
   return $ RMap index key cs b
   where
-  doJoin (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = trace (show ("=======", k1, k2)) $ Just $ KeyedVal k1 (a, b)
-  doJoin (KeyedVal k1 a) (KeyedVal k2 b) = trace (show ("=======", k1, k2)) $ Nothing
+  doJoin (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = Just $ KeyedVal k1 (a, b)
+  doJoin (KeyedVal k1 a) (KeyedVal k2 b) = Nothing
 
 
 
 
+data Range = Range Int Int
+  deriving (Eq, Show, Generic, S.Serialize)
 
 
 
+instance Chunkable Range where
+  chunk nbBuckets (Range min max) =
+    Many $ Vc.fromList $ L.reverse $ go [] min nbBuckets
+    where
+    delta = (max - min) `div` nbBuckets
+    go ranges current 1 = (Range current max):ranges
+    go ranges current n | current >= max = go (Range current current : ranges) current (n - 1)
+    go ranges current n =
+      go (Range current end' : ranges) end' (n - 1)
+      where
+      end' = if end > max then max else end
+      end = current + delta
 
 
 

@@ -128,7 +128,7 @@ runSimpleRemoteOneSlaveRet slaveId _rr (RConst n _ a) = do
   return subRdd
 
 
-runSimpleRemoteRet ::(S.Serialize a, Chunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m a
+runSimpleRemoteRet ::(S.Serialize a, UnChunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m a
 runSimpleRemoteRet m oe@(RMap _ _ (ExpClosure ce _) _) = do
   s <- getRemote
   cp <- runSimpleLocal m ce
@@ -157,7 +157,7 @@ runSimpleRemoteRet m e = do
 
 
 
-runSimpleRemoteNoRet ::(S.Serialize a, Chunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m ()
+runSimpleRemoteNoRet ::(S.Serialize a, UnChunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m ()
 
 runSimpleRemoteNoRet m oe@(RMap _ _ (ExpClosure ce _) _) = do
   s <- getRemote

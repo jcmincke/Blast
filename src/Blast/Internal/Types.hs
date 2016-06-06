@@ -103,6 +103,8 @@ partitionToVector (Many as) = as
 
 class Chunkable a where
   chunk :: Int -> a -> Partition a
+
+class UnChunkable a where
   unChunk :: [a] -> a
 
 class ChunkableFreeVar a where
@@ -114,14 +116,14 @@ instance ChunkableFreeVar a
 instance ChunkableFreeVar ()
 
 data RemoteExp a where
-  RMap :: (S.Serialize a, S.Serialize b, Chunkable a, Chunkable b) => Int -> V.Key b -> ExpClosure a b -> RemoteExp a -> RemoteExp b
+  RMap :: (S.Serialize a, S.Serialize b, Chunkable a, UnChunkable b) => Int -> V.Key b -> ExpClosure a b -> RemoteExp a -> RemoteExp b
   RConst :: (S.Serialize a, Chunkable a) => Int -> V.Key a -> a -> RemoteExp a
 
 type LocalKey a = V.Key (a, Maybe (Partition BS.ByteString))
 
 data LocalExp a where
   LConst :: Int -> LocalKey a -> a -> LocalExp a
-  Collect :: (S.Serialize a, Chunkable a) => Int -> LocalKey a -> RemoteExp a -> LocalExp a
+  Collect :: (S.Serialize a, UnChunkable a) => Int -> LocalKey a -> RemoteExp a -> LocalExp a
   FMap :: Int -> LocalKey b -> LocalExp (a -> b) -> LocalExp a -> LocalExp b
 
 
@@ -144,6 +146,8 @@ instance Chunkable [a] where
     go acc n ls = go (L.take nbPerBucket ls : acc) (n-1) (L.drop nbPerBucket ls)
     len = L.length l
     nbPerBucket = len `div` nbBuckets
+
+instance UnChunkable [a] where
   unChunk l = L.concat l
 
 
