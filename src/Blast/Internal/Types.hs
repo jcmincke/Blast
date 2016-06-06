@@ -2,10 +2,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+
 
 module Blast.Internal.Types
 where
@@ -20,6 +22,7 @@ import qualified  Data.List as L
 import qualified  Data.Map as M
 import qualified  Data.Serialize as S
 import qualified  Data.Vault.Strict as V
+import            Data.Vector as Vc
 import            GHC.Generics (Generic)
 
 
@@ -88,15 +91,15 @@ data ExpClosure a b =
 
 data Partition a =
   Singleton Int a
-  |Many [a]
+  |Many (Vc.Vector a)
 
 instance Functor Partition where
   fmap f (Singleton size a) = Singleton size $ f a
   fmap f (Many as) = Many $ fmap f as
 
-partitionToList :: Partition a -> [a]
-partitionToList (Singleton size a) = L.take size $ L.repeat a
-partitionToList (Many as) = as
+partitionToVector :: Partition a -> Vc.Vector a
+partitionToVector (Singleton size a) = Vc.generate size (const a)
+partitionToVector (Many as) = as
 
 class Chunkable a where
   chunk :: Int -> a -> Partition a
@@ -105,10 +108,10 @@ class Chunkable a where
 class ChunkableFreeVar a where
   chunk' :: Int -> a -> Partition a
   chunk' n a = Singleton n a
-  unChunk' :: [a] -> a
-  unChunk' as = L.head as
+
 
 instance ChunkableFreeVar a
+instance ChunkableFreeVar ()
 
 data RemoteExp a where
   RMap :: (S.Serialize a, S.Serialize b, Chunkable a, Chunkable b) => Int -> V.Key b -> ExpClosure a b -> RemoteExp a -> RemoteExp b
@@ -135,7 +138,7 @@ instance Show (LocalExp a) where
 -- TODO to improve
 instance Chunkable [a] where
   chunk nbBuckets l =
-    Many $ L.reverse $ go [] nbBuckets l
+    Many $ Vc.reverse $ Vc.fromList $ go [] nbBuckets l
     where
     go acc 1 ls = ls:acc
     go acc n ls = go (L.take nbPerBucket ls : acc) (n-1) (L.drop nbPerBucket ls)

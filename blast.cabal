@@ -42,13 +42,16 @@ library
     , distributed-process-extras
     , distributed-process-simplelocalnet
     , either
+    , hashable
     , lens
     , monad-logger
     , random
     , syb
     , text
     , transformers
+    , unordered-containers
     , vault
+    , vector
   default-language:    Haskell2010
   ghc-options:         -Wall
 

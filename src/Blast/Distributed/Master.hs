@@ -21,6 +21,7 @@ import qualified  Data.ByteString as BS
 import qualified  Data.List as L
 import qualified  Data.Serialize as S
 import qualified  Data.Vault.Strict as V
+import qualified  Data.Vector as Vc
 
 import Blast.Internal.Types
 import Blast.Distributed.Types
@@ -66,8 +67,7 @@ runSimpleRemoteOneSlaveNoRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
         Just (_, Just p) -> do
           let ceId = getLocalIndex ce
           let nbSlaves = getNbSlaves s
-        --  let partitionedCe = partitionToList (chunk' nbSlaves c) L.!! slaveId
-          let csBs = partitionToList p L.!! slaveId
+          let csBs = partitionToVector p Vc.! slaveId
           _ <- liftIO $ cache s slaveId ceId csBs
           runSimpleRemoteOneSlaveNoRet slaveId m oe
     RemCsResCacheMiss CachedArg -> do
@@ -82,7 +82,7 @@ runSimpleRemoteOneSlaveNoRet slaveId _ (RConst n _ a) = do
   s <- getRemote
   let nbSlaves = getNbSlaves s
   -- todo chunk is applied for each slave , not efficient, to fix
-  let subRdd = partitionToList (chunk nbSlaves a) L.!! slaveId
+  let subRdd = partitionToVector (chunk nbSlaves a) Vc.! slaveId
   let subRddBs = S.encode subRdd
   _ <- liftIO $ cache s slaveId n subRddBs
   return ()
@@ -106,7 +106,7 @@ runSimpleRemoteOneSlaveRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
         Just (_, Just p) -> do
           let ceId = getLocalIndex ce
           let nbSlaves = getNbSlaves s
-          let csBs = partitionToList p L.!! slaveId
+          let csBs = partitionToVector p Vc.! slaveId
           _ <- liftIO $ cache s slaveId ceId csBs
           runSimpleRemoteOneSlaveRet slaveId m oe
     RemCsResCacheMiss CachedArg -> do
@@ -122,7 +122,7 @@ runSimpleRemoteOneSlaveRet slaveId _rr (RConst n _ a) = do
   s <- getRemote
   let nbSlaves = getNbSlaves s
   -- todo not efficient, fix me
-  let subRdd = partitionToList (chunk nbSlaves a) L.!! slaveId
+  let subRdd = partitionToVector (chunk nbSlaves a) Vc.! slaveId
   let subRddBs = S.encode subRdd
   _ <- liftIO $ cache s slaveId n subRddBs
   return subRdd

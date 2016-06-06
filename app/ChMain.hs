@@ -22,6 +22,7 @@ import            System.Environment (getArgs)
 import            Blast
 import            Blast.Distributed.Rpc.CloudHaskell
 import qualified  Blast.Runner.Simple as S
+import qualified  Blast.Distributed.Rpc.Local as Loc
 
 {-
 expGenerator a = do
@@ -61,6 +62,24 @@ expGenerator (a::Int) = do
       r <- ((,) <$$> a' <**> a2)
       return r
 
+
+
+expGenerator2 (a::Int) = do
+      r1 <- rcst [KeyedVal i (i*2) | i <- [1..10::Int]]
+      r2 <- rcst [KeyedVal i (i*3) | i <- [1..10::Int]]
+
+      j1 <- rKeyedJoin r1 r2
+      a1 <- collect j1
+
+  --    j2 <- rKeyedJoin r1 r2
+ --     a2 <- collect j2
+
+      a' <- lcst (a+1)
+--      r <- ((,) <$$> a1 <**> a2)
+      rf <- ((,) <$$> a' <**> a1)
+      return rf
+
+
 reporting a b = do
   putStrLn "Reporting"
   print a
@@ -69,7 +88,7 @@ reporting a b = do
   return a
 
 
-jobDesc = MkJobDesc 0 expGenerator reporting (\x -> x>=3)
+jobDesc = MkJobDesc 0 expGenerator2 reporting (\x -> True)
 --jobDesc = MkJobDesc True 0 expGenerator (\x -> False)
 
 rpcConfigAction = return $
@@ -97,6 +116,23 @@ main = do
     print b
     print "=========="
 
+rloc = do
+  let cf = MkConfig True 1.0
+  s <- runStdoutLoggingT $ Loc.createSimpleRemote cf 5 expGenerator2
+  (a,b) <- runStdoutLoggingT $ Loc.runSimpleLocalRec cf s jobDesc
+  print a
+  print b
+
+{-
+createSimpleRemote :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>
+      Config -> Int -> (a -> StateT Int m (LocalExp (a, b)))
+      -> m (SimpleRemote a)
+
+
+runSimpleLocalRec ::
+  (S.Serialize a, S.Serialize b, RemoteClass s a, MonadIO m, MonadLoggerIO m) =>
+  Config -> s a -> JobDesc m a b -> m (a, b)
+-}
 
 rrec = do
   let cf = MkConfig True 1.0

@@ -1,25 +1,43 @@
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Blast.Syntax
 where
 
+import Debug.Trace
+import            Control.Applicative hiding ((<**>))
 import            Control.Monad hiding (join)
 import            Control.Monad.IO.Class
 import            Control.Monad.Trans.State
+import            Data.Foldable
+import            Data.Hashable
+import qualified  Data.HashMap.Lazy as M
+import qualified  Data.List as L
+import            Data.Maybe (catMaybes)
 import            Data.Traversable
 import            Data.Vault.Strict as V
+import qualified  Data.Vector as Vc
 import qualified  Data.Serialize as S
+
+import            GHC.Generics (Generic)
+
 
 import            Blast.Types
 
 
 
 class Joinable a b where
-  type JoinedVal a b :: *
-  join :: a -> b -> JoinedVal a b
+  join :: a -> b -> Maybe (a, b)
 
 
 fun :: (a -> b) -> Fun a b
@@ -90,12 +108,12 @@ rfilter p e = do
         r <- foldMap (\a -> do
             b <- f a
             return $ if b then pure a else mempty) ta
-        return r) -- $ foldMap id r)
+        return r)
   mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c ta -> do
         r <- foldMap (\a -> do
               b <- f c a
               return $ if b then pure a else mempty) ta
-        return r) -- $ foldMap id r)
+        return r)
 
 
 collect :: (MonadIO m, S.Serialize a, Chunkable a, NodeIndexer s) =>
@@ -124,25 +142,6 @@ lcst a = do
   index <- nextIndex
   key <- liftIO V.newKey
   return $ LConst index key a
-
-
-rjoin :: (MonadIO m, Show a, S.Serialize a, S.Serialize b, S.Serialize (JoinedVal a b)
-          , Joinable a b, Chunkable a, Chunkable b, Chunkable (JoinedVal a b), NodeIndexer s
-          , ChunkableFreeVar a) =>
-         RemoteExp a -> RemoteExp b -> StateT s m (RemoteExp (JoinedVal a b))
-rjoin a b = do
-  a' <- collect a
-  index <- nextIndex
-  key <- liftIO V.newKey
-  let cs = ExpClosure a' (\av bv -> return $ join av bv)
-  return $ RMap index key cs b
-
---class Relational a where
---  rjoin' :: (MonadIO m, Show a, S.Serialize a, S.Serialize b, S.Serialize (JoinedVal a b)
---            , Joinable a b, Chunkable a, Chunkable b, Chunkable (JoinedVal a b), NodeIndexer s
---            , ChunkableFreeVar a) =>
---            RemoteExp a -> RemoteExp b -> StateT s m (RemoteExp (JoinedVal a b))
-
 
 
 lfold :: (MonadIO m, Show a, Show r, Foldable t, NodeIndexer s) =>
@@ -202,3 +201,114 @@ f <**> a = do
 
 (<$$>) :: (MonadIO m, NodeIndexer s) => (a->b) -> LocalExp a -> StateT s m (LocalExp b)
 f <$$> e = lcst f <**> e
+
+
+
+instance (Show a , Show b) => Joinable a b where
+  join a b = trace (show ("$$$$$$$$$$$$$$$$", a, b)) $ Just (a, b)
+
+instance (Eq k, Show k,Show a, Show b) => Joinable (KeyedVal k a) (KeyedVal k b) where
+  join (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = trace (show ("=================", k1, k2)) $  Just (KeyedVal k1 a, KeyedVal k2 b)
+  join (KeyedVal k1 a) (KeyedVal k2 b)  = trace (show ("++++++++++++", k1, k2)) $ Nothing
+
+fromList' :: (Applicative t, Foldable t, Monoid (t a)) => [a] -> t a
+fromList' l = foldMap pure l
+
+
+rjoin :: (MonadIO m, Show (t a), S.Serialize (t a), S.Serialize (t b), S.Serialize (t (a, b)), Traversable t, Applicative t
+          , Joinable a b, Chunkable (t a), Chunkable (t b), Chunkable (t (a, b)), Monoid (t (a, b)), NodeIndexer s
+          , ChunkableFreeVar (t a)) =>
+         RemoteExp (t a) -> RemoteExp (t b) -> StateT s m (RemoteExp (t (a, b)))
+rjoin a b = do
+  a' <- collect a
+  index <- nextIndex
+  key <- liftIO V.newKey
+  let cs = ExpClosure a' (\av bv -> return $ fromList' $ catMaybes [join a b | a <- toList av, b <- toList bv])
+  return $ RMap index key cs b
+
+data KeyedVal k v = KeyedVal k v
+  deriving (Generic, S.Serialize, Show)
+
+
+data OptiT t k v = OptiT (t (KeyedVal k v))
+  deriving (Generic)
+
+instance (Show (t (KeyedVal k v))) => Show (OptiT t k v) where
+  show (OptiT x) = show x
+
+instance (S.Serialize (t (KeyedVal k v))) => S.Serialize (OptiT t k v)
+
+instance (Hashable k) => Chunkable [KeyedVal k v] where
+  chunk nbBuckets l =
+    Many $ Vc.reverse $ Vc.generate nbBuckets (\i -> buckets M.! i)
+    where
+    buckets = L.foldl proc M.empty l
+    proc bucket' kv@(KeyedVal k _) = let
+      i = hash k `mod` nbBuckets
+      in M.insertWith (++) i [kv] bucket'
+  unChunk l = L.concat l
+
+
+instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v)), Chunkable (t (KeyedVal k v))) => ChunkableFreeVar (OptiT t k v) where
+  chunk' n (OptiT tkvs) = trace ("here") $ fmap OptiT $ chunk n tkvs
+
+
+
+rKeyedJoin :: (MonadIO m, Eq k, Show k, Show (t (KeyedVal k a)), S.Serialize (t (KeyedVal k a)), S.Serialize(t (KeyedVal k b)), S.Serialize (t (KeyedVal k (a, b))), Traversable t, Applicative t
+          , Joinable (KeyedVal k a) (KeyedVal k b)
+          , Chunkable (t (KeyedVal k a)), Chunkable (t (KeyedVal k b))
+          , Chunkable (t (KeyedVal k (a, b))), Monoid (t (KeyedVal k (a, b))), NodeIndexer s
+          , ChunkableFreeVar (t (KeyedVal k a))
+          , Show (t (KeyedVal k b))
+          , Show (OptiT t k a)
+          , S.Serialize (OptiT t k a)
+          , Monoid (t (KeyedVal k a))
+          ) =>
+         RemoteExp (t (KeyedVal k a)) -> RemoteExp (t (KeyedVal k b)) -> StateT s m (RemoteExp (t (KeyedVal k (a, b))))
+rKeyedJoin a b = do
+  a' <- collect a
+  ja <- OptiT <$$> a'
+  index <- nextIndex
+  key <- liftIO V.newKey
+  let cs = ExpClosure ja (\(OptiT av) bv -> trace (show av) $ trace (show bv) $ return $ fromList' $ catMaybes [doJoin a b | a <- toList av, b <- toList bv])
+  return $ RMap index key cs b
+  where
+  doJoin (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = trace (show ("=======", k1, k2)) $ Just $ KeyedVal k1 (a, b)
+  doJoin (KeyedVal k1 a) (KeyedVal k2 b) = trace (show ("=======", k1, k2)) $ Nothing
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
