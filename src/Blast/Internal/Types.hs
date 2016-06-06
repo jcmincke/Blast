@@ -25,11 +25,12 @@ import qualified  Data.Vault.Strict as V
 import            Data.Vector as Vc
 import            GHC.Generics (Generic)
 
-
+{-
 data RemoteValue a =
   RemoteValue a
   |CachedRemoteValue
   deriving (Generic, Show)
+-}
 
 data ResultDescriptor b = ResultDescriptor Bool Bool  -- ^ should be returned + should be cached
   deriving (Generic, Show)
@@ -50,10 +51,9 @@ data RemoteClosureResult b =
 instance NFData (RemoteClosureResult BS.ByteString)
 instance NFData CachedValType
 instance NFData (ResultDescriptor BS.ByteString)
-instance NFData (RemoteValue BS.ByteString)
+--instance NFData (RemoteValue BS.ByteString)
 
-type RemoteClosureImpl = V.Vault -> (RemoteValue BS.ByteString) -> (RemoteValue BS.ByteString)
-                     -> ResultDescriptor (BS.ByteString) -> IO (RemoteClosureResult BS.ByteString, V.Vault)
+type RemoteClosureImpl = V.Vault -> ResultDescriptor (BS.ByteString) -> IO (RemoteClosureResult BS.ByteString, V.Vault)
 
 type Cacher = BS.ByteString -> V.Vault -> V.Vault
 type UnCacher = V.Vault -> V.Vault
@@ -178,7 +178,7 @@ data JobDesc m a b = MkJobDesc {
 instance Binary (RemoteClosureResult BS.ByteString)
 instance Binary CachedValType
 instance Binary (ResultDescriptor BS.ByteString)
-instance Binary (RemoteValue BS.ByteString)
+--instance Binary (RemoteValue BS.ByteString)
 
 data Config = MkConfig
   {

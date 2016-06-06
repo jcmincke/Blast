@@ -143,20 +143,13 @@ rpcCall (MkRpcState {..}) slaveIdx request = do
 
 
 
-encodeRemoteValue :: (S.Serialize a) => RemoteValue a -> RemoteValue BS.ByteString
-encodeRemoteValue (RemoteValue a) = RemoteValue $ S.encode a
-encodeRemoteValue CachedRemoteValue = CachedRemoteValue
-
-
 instance (S.Serialize a) => RemoteClass RpcState a where
   getNbSlaves (MkRpcState {..}) = M.size rpcSlaves
   status rpc@(MkRpcState {..}) slaveId = do
     (LsRespBool b) <- rpcCall rpc slaveId LsReqStatus
     return b
-  execute rpc@(MkRpcState {..}) slaveIdx i c a (ResultDescriptor sr sc) = do
-    let ec = encodeRemoteValue c
-    let ea = encodeRemoteValue a
-    let req = LsReqExecute i ec ea (ResultDescriptor sr sc)
+  execute rpc@(MkRpcState {..}) slaveIdx i (ResultDescriptor sr sc) = do
+    let req = LsReqExecute i (ResultDescriptor sr sc)
     (LocalSlaveExecuteResult resp) <- rpcCall rpc slaveIdx req
     case resp of
       RemCsResCacheMiss t -> return $ RemCsResCacheMiss t

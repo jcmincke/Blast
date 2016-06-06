@@ -29,8 +29,9 @@ type RemoteClosureIndex = Int
 class (S.Serialize x) => RemoteClass s x where
   getNbSlaves :: s x -> Int
   status ::  s x -> Int -> IO Bool
-  execute :: (S.Serialize c, S.Serialize a, S.Serialize b) => s x -> Int -> RemoteClosureIndex -> (RemoteValue c) -> (RemoteValue a) -> ResultDescriptor b -> IO (RemoteClosureResult b)
+  execute :: (S.Serialize b) => s x -> Int -> RemoteClosureIndex -> ResultDescriptor b -> IO (RemoteClosureResult b)
   cache :: s x -> Int -> Int -> BS.ByteString -> IO Bool
+  -- todo to delete cache'
   cache' :: (S.Serialize a) => s x -> Int -> Int -> a -> IO Bool
   uncache :: s x -> Int -> Int -> IO Bool
   isCached :: s x -> Int -> Int -> IO Bool
@@ -42,7 +43,7 @@ class (S.Serialize x) => RemoteClass s x where
 
 data LocalSlaveRequest =
   LsReqStatus
-  |LsReqExecute RemoteClosureIndex (RemoteValue BS.ByteString) (RemoteValue BS.ByteString) (ResultDescriptor BS.ByteString)
+  |LsReqExecute RemoteClosureIndex (ResultDescriptor BS.ByteString)
   |LsReqCache Int BS.ByteString
   |LsReqUncache Int
   |LsReqIsCached Int
@@ -50,7 +51,7 @@ data LocalSlaveRequest =
   deriving (Generic)
 
 instance Show LocalSlaveRequest where
-  show (LsReqExecute _ _ _ _) = "LsReqExecute"
+  show (LsReqExecute _ _) = "LsReqExecute"
   show (LsReqCache _ _) = "LsReqCache"
   show (LsReqUncache  _) = "LsReqUncache"
   show (LsReqIsCached  _) = "LsReqIsCached"

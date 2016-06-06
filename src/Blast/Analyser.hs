@@ -126,34 +126,26 @@ wrapClosure :: forall a b c . (S.Serialize a, S.Serialize b, S.Serialize c) =>
 wrapClosure keyc keya keyb f =
     proc
     where
-    proc vault cfv a (ResultDescriptor shouldReturn shouldCache) = do
+    proc vault (ResultDescriptor shouldReturn shouldCache) = do
       r' <- runEitherT r
       return $ either (\l -> (l, vault)) id r'
       where
       r = do
-        c <- getLocalVal CachedFreeVar vault keyc cfv
-        av <- getVal CachedArg vault keya a
+        c <- getLocalVal CachedFreeVar vault keyc
+        av <- getVal CachedArg vault keya
         brdd <- liftIO $ (f c) av
         let vault' = if shouldCache then V.insert keyb brdd vault else vault
         let bbsM = if shouldReturn then Just $ S.encode brdd else Nothing
         return (ExecRes bbsM, vault')
 
-getVal :: (S.Serialize a, Monad m) =>  CachedValType -> V.Vault -> V.Key a -> RemoteValue BS.ByteString -> EitherT (RemoteClosureResult b) m a
-getVal _ _ _ (RemoteValue bs) =
-  case S.decode bs of
-  Right v -> right v
-  Left e -> left $ ExecResError (show e)
-getVal cvt vault key CachedRemoteValue =
+getVal :: (S.Serialize a, Monad m) =>  CachedValType -> V.Vault -> V.Key a -> EitherT (RemoteClosureResult b) m a
+getVal cvt vault key =
   case V.lookup key vault of
   Just v -> right v
   Nothing -> left $ RemCsResCacheMiss cvt
 
-getLocalVal :: (S.Serialize a, Monad m) =>  CachedValType -> V.Vault -> LocalKey a -> RemoteValue BS.ByteString -> EitherT (RemoteClosureResult b) m a
-getLocalVal _ _ _ (RemoteValue bs) =
-  case S.decode bs of
-  Right v -> right v
-  Left e -> left $ ExecResError (show e)
-getLocalVal cvt vault key CachedRemoteValue =
+getLocalVal :: (S.Serialize a, Monad m) =>  CachedValType -> V.Vault -> LocalKey a -> EitherT (RemoteClosureResult b) m a
+getLocalVal cvt vault key  =
   case V.lookup key vault of
   Just (v, _) -> right v
   Nothing -> left $ RemCsResCacheMiss cvt

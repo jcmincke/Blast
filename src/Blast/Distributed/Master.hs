@@ -46,16 +46,16 @@ setVault vault= do
   put (s, vault)
 
 
-createRemoteCachedRemoteValue :: RemoteExp a -> RemoteValue a
-createRemoteCachedRemoteValue _ = CachedRemoteValue
+--createRemoteCachedRemoteValue :: RemoteExp a -> RemoteValue a
+--createRemoteCachedRemoteValue _ = CachedRemoteValue
 
-createLocalCachedRemoteValue :: LocalExp a -> RemoteValue a
-createLocalCachedRemoteValue _ = CachedRemoteValue
+--createLocalCachedRemoteValue :: LocalExp a -> RemoteValue a
+--createLocalCachedRemoteValue _ = CachedRemoteValue
 
 runSimpleRemoteOneSlaveNoRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x , V.Vault) m ()
 runSimpleRemoteOneSlaveNoRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
   s <- getRemote
-  r <- liftIO $ execute s slaveId n (createLocalCachedRemoteValue ce) (createRemoteCachedRemoteValue e) (ResultDescriptor False True :: ResultDescriptor ())
+  r <- liftIO $ execute s slaveId n (ResultDescriptor False True :: ResultDescriptor ())
   case r of
     RemCsResCacheMiss CachedFreeVar -> do
       vault <- getVault
@@ -94,7 +94,7 @@ runSimpleRemoteOneSlaveRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int 
 
 runSimpleRemoteOneSlaveRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
   s <- getRemote
-  r <- liftIO $ execute s slaveId n (createLocalCachedRemoteValue ce) (createRemoteCachedRemoteValue e) (ResultDescriptor True True)
+  r <- liftIO $ execute s slaveId n (ResultDescriptor True True)
   case r of
     RemCsResCacheMiss CachedFreeVar -> do
       vault <- getVault

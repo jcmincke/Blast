@@ -82,12 +82,10 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
     writeChan iocOutChan LsReqStatus
     (LsRespBool b) <- readChan iocInChan
     return b
-  execute s@(MkSimpleRemote {..}) slaveId i c a (ResultDescriptor sr sc) = do
+  execute s@(MkSimpleRemote {..}) slaveId i (ResultDescriptor sr sc) = do
     randomSlaveReset s slaveId
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
-    let ec = encodeRemoteValue c
-    let ea = encodeRemoteValue a
-    let req = LsReqExecute i ec ea (ResultDescriptor sr sc)
+    let req = LsReqExecute i (ResultDescriptor sr sc)
     let !req' = force req
     writeChan iocOutChan req'
     (LocalSlaveExecuteResult resp) <- readChan iocInChan
@@ -140,9 +138,9 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
   stop _ = return ()
 
 
-encodeRemoteValue :: (S.Serialize a) => RemoteValue a -> RemoteValue BS.ByteString
-encodeRemoteValue (RemoteValue a) = RemoteValue $ S.encode a
-encodeRemoteValue CachedRemoteValue = CachedRemoteValue
+--encodeRemoteValue :: (S.Serialize a) => RemoteValue a -> RemoteValue BS.ByteString
+--encodeRemoteValue (RemoteValue a) = RemoteValue $ S.encode a
+--encodeRemoteValue CachedRemoteValue = CachedRemoteValue
 
 
 createSimpleRemote :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>

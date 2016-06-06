@@ -51,11 +51,11 @@ runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
       let ls' = ls {infos = infos2, vault = V.empty}
       return  (LsRespVoid, ls')
 runCommand ls LsReqStatus = return (LsRespBool (not $ M.null $ infos ls), ls)
-runCommand ls (LsReqExecute i crv arv rdesc) = do
+runCommand ls (LsReqExecute i rdesc) = do
     case M.lookup i (infos ls) of
       Nothing -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
       Just (Info _ (Just cs) _) -> do
-        (res, vault') <- liftIO $ cs (vault ls) crv arv rdesc
+        (res, vault') <- liftIO $ cs (vault ls) rdesc
         let ls' = ls {vault =  vault'}
         return (LocalSlaveExecuteResult res, ls')
       Just (Info _ Nothing _) -> return (LocalSlaveExecuteResult (ExecResError ("closure not found: "++show i)), ls)
