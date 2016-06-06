@@ -51,7 +51,6 @@ data RemoteClosureResult b =
 instance NFData (RemoteClosureResult BS.ByteString)
 instance NFData CachedValType
 instance NFData (ResultDescriptor BS.ByteString)
---instance NFData (RemoteValue BS.ByteString)
 
 type RemoteClosureImpl = V.Vault -> ResultDescriptor (BS.ByteString) -> IO (RemoteClosureResult BS.ByteString, V.Vault)
 
@@ -116,7 +115,7 @@ instance ChunkableFreeVar a
 instance ChunkableFreeVar ()
 
 data RemoteExp a where
-  RMap :: (S.Serialize a, S.Serialize b, Chunkable a, UnChunkable b) => Int -> V.Key b -> ExpClosure a b -> RemoteExp a -> RemoteExp b
+  RMap :: Int -> V.Key b -> ExpClosure a b -> RemoteExp a -> RemoteExp b
   RConst :: (S.Serialize a, Chunkable a) => Int -> V.Key a -> a -> RemoteExp a
 
 type LocalKey a = V.Key (a, Maybe (Partition BS.ByteString))

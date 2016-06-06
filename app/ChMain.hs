@@ -24,6 +24,7 @@ import            Blast.Distributed.Rpc.CloudHaskell
 import qualified  Blast.Runner.Simple as S
 import qualified  Blast.Distributed.Rpc.Local as Loc
 
+
 {-
 expGenerator a = do
       r1 <- cstRdd [1..100000::Int]

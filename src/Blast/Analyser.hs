@@ -51,13 +51,13 @@ setRemoteClosure n cs m =
 wasVisited :: Int -> InfoMap -> Bool
 wasVisited n m = M.member n m
 
-visitExp :: (S.Serialize a) => Int -> V.Key a -> InfoMap -> InfoMap
+visitExp :: Int -> V.Key a -> InfoMap -> InfoMap
 visitExp n key  m =
   case M.lookup n m of
   Just (Info _ _ _) -> error ("Node " ++ show n ++ " has already been visited")
   Nothing -> M.insert n (Info 0 Nothing (Just $ makeCacheInfo key)) m
 
-visitLocalExp :: (S.Serialize a) => Int -> LocalKey a -> InfoMap -> InfoMap
+visitLocalExp :: Int -> LocalKey a -> InfoMap -> InfoMap
 visitLocalExp n key  m =
   case M.lookup n m of
   Just (Info _ _ _) -> error ("Node " ++ show n ++ " has already been visited")
@@ -88,7 +88,7 @@ wasVisitedM n = do
   m <- get
   return $ wasVisited n m
 
-visitExpM ::  forall a m. (S.Serialize a, MonadLoggerIO m) =>
+visitExpM ::  forall a m. (MonadLoggerIO m) =>
               Int -> V.Key a  -> StateT InfoMap m ()
 visitExpM n key = do
   $(logInfo) $ T.pack  ("Visiting node: " ++ show n)
@@ -96,7 +96,7 @@ visitExpM n key = do
   put $ visitExp n key m
 
 
-visitLocalExpM ::  forall a m. (S.Serialize a, MonadLoggerIO m) =>
+visitLocalExpM ::  forall a m. (MonadLoggerIO m) =>
               Int -> LocalKey a  -> StateT InfoMap m ()
 visitLocalExpM n key = do
   $(logInfo) $ T.pack  ("Visiting node: " ++ show n)
@@ -113,7 +113,7 @@ visitExpNoCacheM n = do
 
 
 
-mkRemoteClosure :: forall a b m . (MonadLoggerIO m , S.Serialize b, S.Serialize a) =>
+mkRemoteClosure :: forall a b m . (MonadLoggerIO m, S.Serialize b) =>
   V.Key a -> V.Key b -> ExpClosure a b -> StateT (M.Map Int Info) m RemoteClosureImpl
 mkRemoteClosure keya keyb (ExpClosure e f) = do
   analyseSerializeLocal e
@@ -121,7 +121,7 @@ mkRemoteClosure keya keyb (ExpClosure e f) = do
   return $ wrapClosure keyc keya keyb f
 
 
-wrapClosure :: forall a b c . (S.Serialize a, S.Serialize b, S.Serialize c) =>
+wrapClosure :: forall a b c . (S.Serialize b) =>
             LocalKey c -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
 wrapClosure keyc keya keyb f =
     proc
@@ -138,13 +138,13 @@ wrapClosure keyc keya keyb f =
         let bbsM = if shouldReturn then Just $ S.encode brdd else Nothing
         return (ExecRes bbsM, vault')
 
-getVal :: (S.Serialize a, Monad m) =>  CachedValType -> V.Vault -> V.Key a -> EitherT (RemoteClosureResult b) m a
+getVal :: (Monad m) =>  CachedValType -> V.Vault -> V.Key a -> EitherT (RemoteClosureResult b) m a
 getVal cvt vault key =
   case V.lookup key vault of
   Just v -> right v
   Nothing -> left $ RemCsResCacheMiss cvt
 
-getLocalVal :: (S.Serialize a, Monad m) =>  CachedValType -> V.Vault -> LocalKey a -> EitherT (RemoteClosureResult b) m a
+getLocalVal :: (Monad m) =>  CachedValType -> V.Vault -> LocalKey a -> EitherT (RemoteClosureResult b) m a
 getLocalVal cvt vault key  =
   case V.lookup key vault of
   Just (v, _) -> right v
@@ -190,7 +190,7 @@ makeCacheInfo key =
     Nothing -> False
 
 
-makeLocalCacheInfo :: (S.Serialize a) =>LocalKey a -> CacheInfo
+makeLocalCacheInfo :: (S.Serialize a) => LocalKey a -> CacheInfo
 makeLocalCacheInfo key =
   MkCacheInfo (makeCacher key) (makeUnCacher key) (makeIsCached key)
   where
