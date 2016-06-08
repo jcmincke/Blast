@@ -4,7 +4,9 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Blast.Distributed.Master
@@ -45,17 +47,10 @@ setVault vault= do
   (s, _) <- get
   put (s, vault)
 
-
---createRemoteCachedRemoteValue :: RemoteExp a -> RemoteValue a
---createRemoteCachedRemoteValue _ = CachedRemoteValue
-
---createLocalCachedRemoteValue :: LocalExp a -> RemoteValue a
---createLocalCachedRemoteValue _ = CachedRemoteValue
-
-runSimpleRemoteOneSlaveNoRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x , V.Vault) m ()
-runSimpleRemoteOneSlaveNoRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
+runSimpleRemoteOneSlaveRMapNoRet ::(RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x , V.Vault) m ()
+runSimpleRemoteOneSlaveRMapNoRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
   s <- getRemote
-  r <- liftIO $ execute s slaveId n (ResultDescriptor False True :: ResultDescriptor ())
+  r <- liftIO $ execute s slaveId n
   case r of
     RemCsResCacheMiss CachedFreeVar -> do
       vault <- getVault
@@ -69,16 +64,19 @@ runSimpleRemoteOneSlaveNoRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
           let nbSlaves = getNbSlaves s
           let csBs = partitionToVector p Vc.! slaveId
           _ <- liftIO $ cache s slaveId ceId csBs
-          runSimpleRemoteOneSlaveNoRet slaveId m oe
+          runSimpleRemoteOneSlaveRMapNoRet slaveId m oe
     RemCsResCacheMiss CachedArg -> do
-      runSimpleRemoteOneSlaveNoRet slaveId m e
-      runSimpleRemoteOneSlaveNoRet slaveId m oe
+      case e of
+        (RMap _ _ _ _) -> runSimpleRemoteOneSlaveRMapNoRet slaveId m e
+        (RConst _ _ _) -> runSimpleRemoteOneSlaveRConstNoRet slaveId m e
+      runSimpleRemoteOneSlaveRMapNoRet slaveId m oe
       -- todo uncache e if should not be cached
-    ExecRes Nothing -> return ()
+    ExecRes -> return ()
     ExecResError err -> error ( "remote call: " ++ err)
-    ExecRes (Just _) -> error "no remote value should be returned"
 
-runSimpleRemoteOneSlaveNoRet slaveId _ (RConst n _ a) = do
+runSimpleRemoteOneSlaveRConstNoRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x , V.Vault) m ()
+
+runSimpleRemoteOneSlaveRConstNoRet slaveId _ (RConst n _ a) = do
   s <- getRemote
   let nbSlaves = getNbSlaves s
   -- todo chunk is applied for each slave , not efficient, to fix
@@ -89,72 +87,24 @@ runSimpleRemoteOneSlaveNoRet slaveId _ (RConst n _ a) = do
 
 
 
-runSimpleRemoteOneSlaveRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m a
-
-
-runSimpleRemoteOneSlaveRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
+fetchOnSlaveResults :: forall a s x m.
+  (S.Serialize a, RemoteClass s x, MonadIO m)
+  => Int -> InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m a
+fetchOnSlaveResults slaveId m e = do
   s <- getRemote
-  r <- liftIO $ execute s slaveId n (ResultDescriptor True True)
-  case r of
-    RemCsResCacheMiss CachedFreeVar -> do
-      vault <- getVault
-      let keyce = getLocalVaultKey ce
-      let cem = V.lookup keyce vault
-      case cem of
-        Nothing -> error "local value not cached while executing remote on one slave 3"
-        Just (_, Nothing) -> error "local value not cached (BS) while executing remote on one slave 3"
-        Just (_, Just p) -> do
-          let ceId = getLocalIndex ce
-          let nbSlaves = getNbSlaves s
-          let csBs = partitionToVector p Vc.! slaveId
-          _ <- liftIO $ cache s slaveId ceId csBs
-          runSimpleRemoteOneSlaveRet slaveId m oe
-    RemCsResCacheMiss CachedArg -> do
-      runSimpleRemoteOneSlaveNoRet slaveId m e
-      runSimpleRemoteOneSlaveRet slaveId m oe
-      -- todo uncache e if should not be cached
-    ExecRes Nothing -> error "no remote value returned"
-    ExecResError err -> error ( "remote call: " ++ err)
-    ExecRes (Just b) -> return b
+  let n = getRemoteIndex e
+  (rM::Either String a) <- liftIO $ fetch s slaveId n
+  case rM of
+    Right r -> return r
+    Left err -> error ("Cannot fetch results: "++ show e)
 
-
-runSimpleRemoteOneSlaveRet slaveId _rr (RConst n _ a) = do
-  s <- getRemote
-  let nbSlaves = getNbSlaves s
-  -- todo not efficient, fix me
-  let subRdd = partitionToVector (chunk nbSlaves a) Vc.! slaveId
-  let subRddBs = S.encode subRdd
-  _ <- liftIO $ cache s slaveId n subRddBs
-  return subRdd
-
-
-runSimpleRemoteRet ::(S.Serialize a, UnChunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m a
-runSimpleRemoteRet m oe@(RMap _ _ (ExpClosure ce _) _) = do
-  s <- getRemote
-  cp <- runSimpleLocal m ce
-  case cp of
-    (c, Just _) -> return ()
-    (c, Nothing) -> do
-        let nbSlaves = getNbSlaves s
-        let partition = fmap S.encode $ chunk' nbSlaves c
-        vault <- getVault
-        let key = getLocalVaultKey ce
-        setVault (V.insert key (c, Just partition) vault)
-  vault <- getVault
-  let nbSlaves = getNbSlaves s
-  let slaveIds = [0 .. nbSlaves - 1]
-  r <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runSimpleRemoteOneSlaveRet slaveId m oe) (s, vault)) slaveIds
-  return $ unChunk r
-
-
-runSimpleRemoteRet m e = do
+fetchResults m e = do
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
-  r <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runSimpleRemoteOneSlaveRet slaveId m e) (s, vault)) slaveIds
+  r <- liftIO $ mapConcurrently (\slaveId -> evalStateT (fetchOnSlaveResults slaveId m e) (s, vault)) slaveIds
   return $ unChunk r
-
 
 
 runSimpleRemoteNoRet ::(S.Serialize a, UnChunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m ()
@@ -173,17 +123,17 @@ runSimpleRemoteNoRet m oe@(RMap _ _ (ExpClosure ce _) _) = do
   vault <- getVault
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
-  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runSimpleRemoteOneSlaveNoRet slaveId m oe) (s, vault)) slaveIds
+  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runSimpleRemoteOneSlaveRMapNoRet slaveId m oe) (s, vault)) slaveIds
   return ()
 
 
 
-runSimpleRemoteNoRet m e = do
+runSimpleRemoteNoRet m e@(RConst _ _ _) = do
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
-  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runSimpleRemoteOneSlaveNoRet slaveId m e) (s, vault)) slaveIds
+  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runSimpleRemoteOneSlaveRConstNoRet slaveId m e) (s, vault)) slaveIds
   return ()
 
 
@@ -208,7 +158,8 @@ runSimpleLocal m (Collect _ key e) = do
   case cvm of
     Just a -> return a
     Nothing -> do
-      a <- runSimpleRemoteRet m e
+      runSimpleRemoteNoRet m e
+      a <- fetchResults m e
       vault' <- getVault
       setVault (V.insert key (a, Nothing) vault')
       return (a, Nothing)

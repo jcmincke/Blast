@@ -82,20 +82,16 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
     writeChan iocOutChan LsReqStatus
     (LsRespBool b) <- readChan iocInChan
     return b
-  execute s@(MkSimpleRemote {..}) slaveId i (ResultDescriptor sr sc) = do
+  execute s@(MkSimpleRemote {..}) slaveId i = do
     randomSlaveReset s slaveId
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
-    let req = LsReqExecute i (ResultDescriptor sr sc)
+    let req = LsReqExecute i
     let !req' = force req
     writeChan iocOutChan req'
     (LocalSlaveExecuteResult resp) <- readChan iocInChan
     case resp of
       RemCsResCacheMiss t -> return $ RemCsResCacheMiss t
-      ExecRes Nothing -> return (ExecRes Nothing)
-      ExecRes (Just bs) -> do
-        case S.decode bs of
-          Left err -> error ("decode failed: " ++ err)
-          Right r -> return (ExecRes $ Just r)
+      ExecRes -> return ExecRes
       ExecResError err -> return (ExecResError err)
   cache (MkSimpleRemote {..}) slaveId i bs = do
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
@@ -111,13 +107,16 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
     writeChan iocOutChan req'
     (LsRespBool b) <- readChan iocInChan
     return b
-  isCached (MkSimpleRemote {..}) slaveId i = do
+  fetch (MkSimpleRemote {..}) slaveId i = do
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
-    let req = LsReqIsCached i
+    let req = LsReqFetch i
     let !req' = force req
     writeChan iocOutChan req'
-    (LsRespBool b) <- readChan iocInChan
-    return b
+    (LsFetch bsM) <- readChan iocInChan
+    case bsM of
+      Just bs -> return $ S.decode bs
+      Nothing -> return $ Left "Cannot fetch result"
+
   reset (MkSimpleRemote {..}) slaveId = do
     runStdoutLoggingT $ $(logInfo) $ T.pack ("Resetting node  " ++ show slaveId)
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
@@ -136,11 +135,6 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
       _ <- mapConcurrently (\slaveId -> reset as slaveId) slaveIds
       return ()
   stop _ = return ()
-
-
---encodeRemoteValue :: (S.Serialize a) => RemoteValue a -> RemoteValue BS.ByteString
---encodeRemoteValue (RemoteValue a) = RemoteValue $ S.encode a
---encodeRemoteValue CachedRemoteValue = CachedRemoteValue
 
 
 createSimpleRemote :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>

@@ -28,6 +28,7 @@ library
     Blast.Distributed.Rpc.CloudHaskell
   other-modules:
     Blast.Internal.Types
+    Blast.Internal.Types2
   build-depends:       base >= 4.7 && < 5
     , async
     , binary

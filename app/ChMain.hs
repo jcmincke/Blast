@@ -65,6 +65,18 @@ expGenerator (a::Int) = do
 
 
 
+expGenerator3 (a::Int) = do
+      r1 <- rcst [KeyedVal i (i*2) | i <- [1..10::Int]]
+
+      a1 <- collect r1
+
+      a' <- lcst (a+1)
+      rf <- ((,) <$$> a' <**> a1)
+      return rf
+
+
+
+
 expGenerator2 (a::Int) = do
       r1 <- rcst [KeyedVal i (i*2) | i <- [1..10::Int]]
       r2 <- rcst [KeyedVal i (i*3) | i <- [1..10::Int]]
@@ -119,7 +131,7 @@ main = do
 
 rloc = do
   let cf = MkConfig True 1.0
-  s <- runStdoutLoggingT $ Loc.createSimpleRemote cf 5 expGenerator2
+  s <- runStdoutLoggingT $ Loc.createSimpleRemote cf 4 expGenerator2
   (a,b) <- runStdoutLoggingT $ Loc.runSimpleLocalRec cf s jobDesc
   print a
   print b

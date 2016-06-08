@@ -25,57 +25,59 @@ import qualified  Data.Vault.Strict as V
 import            Data.Vector as Vc
 import            GHC.Generics (Generic)
 
-{-
-data RemoteValue a =
-  RemoteValue a
-  |CachedRemoteValue
-  deriving (Generic, Show)
--}
-
-data ResultDescriptor b = ResultDescriptor Bool Bool  -- ^ should be returned + should be cached
-  deriving (Generic, Show)
-
-instance Functor ResultDescriptor where
-  fmap _ (ResultDescriptor sr sc) = (ResultDescriptor sr sc)
 
 data CachedValType = CachedArg | CachedFreeVar
   deriving (Show, Generic)
 
-data RemoteClosureResult b =
+data RemoteClosureResult =
   RemCsResCacheMiss CachedValType
-  |ExecRes (Maybe b)      -- Nothing when results are not returned
+  |ExecRes
   |ExecResError String    --
   deriving (Generic, Show)
 
 
-instance NFData (RemoteClosureResult BS.ByteString)
+instance NFData RemoteClosureResult
 instance NFData CachedValType
-instance NFData (ResultDescriptor BS.ByteString)
 
-type RemoteClosureImpl = V.Vault -> ResultDescriptor (BS.ByteString) -> IO (RemoteClosureResult BS.ByteString, V.Vault)
+type RemoteClosureImpl = V.Vault -> IO (RemoteClosureResult, V.Vault)
 
 type Cacher = BS.ByteString -> V.Vault -> V.Vault
+type CacherReader = V.Vault -> Maybe BS.ByteString
 type UnCacher = V.Vault -> V.Vault
 type IsCached = V.Vault -> Bool
 
-data CacheInfo = MkCacheInfo {
-  _cacher :: Cacher
-  , _unCache :: UnCacher
-  , _getIsCached :: IsCached
-  }
 
 data Info = Info {
   _nbRef :: Int
-  , _remoteClosure :: Maybe RemoteClosureImpl
-  , _cacheInfo :: Maybe CacheInfo
+  , _info :: NodeTypeInfo
+  }
+
+data NodeTypeInfo =
+  NtRMap RMapInfo
+  |NtRConst RConstInfo
+  |NtLExp LExpInfo
+  |NtLExpNoCache
+
+data RMapInfo = MkRMapInfo {
+  _rmRemoteClosure :: RemoteClosureImpl
+  , _rmUnCacher :: UnCacher
+  , _rmCacheReader :: Maybe CacherReader
+  }
+
+data RConstInfo = MkRConstInfo {
+  _rcstCacher :: Cacher
+  , _rcstUnCacher :: UnCacher
+  , _rcstCacheReader :: Maybe CacherReader
+  }
+
+data LExpInfo = MkLExpInfo {
+  _lexpCacher :: Cacher
+  , _lexpUnCacher :: UnCacher
   }
 
 $(makeLenses ''Info)
 
 type InfoMap = M.Map Int Info
-
-data Rdd a = Rdd [a]
-  deriving (Show, Generic, S.Serialize)
 
 data Fun a b =
   Pure (a -> IO b)
@@ -174,10 +176,8 @@ data JobDesc m a b = MkJobDesc {
   }
 
 
-instance Binary (RemoteClosureResult BS.ByteString)
+instance Binary RemoteClosureResult
 instance Binary CachedValType
-instance Binary (ResultDescriptor BS.ByteString)
---instance Binary (RemoteValue BS.ByteString)
 
 data Config = MkConfig
   {

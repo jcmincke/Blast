@@ -57,7 +57,6 @@ fuseRemote :: (MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (Int, Bool) 
 fuseRemote infos (RMap ne key g ie) | refCountInner > 1 = do
     g' <- fuseClosure infos g
     ie' <- fuseRemote infos ie
-    --liftIO $ print ("ref = "::String, refCountInner, (getRemoteIndex ie))
     return $ RMap ne key g' ie'   -- inner expression is shared, will be cached
     where
     refCountInner = refCount (getRemoteIndex ie) infos

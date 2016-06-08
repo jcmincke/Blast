@@ -1,16 +1,16 @@
 
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE FlexibleContexts #-}
 
 
 
@@ -148,16 +148,12 @@ instance (S.Serialize a) => RemoteClass RpcState a where
   status rpc@(MkRpcState {..}) slaveId = do
     (LsRespBool b) <- rpcCall rpc slaveId LsReqStatus
     return b
-  execute rpc@(MkRpcState {..}) slaveIdx i (ResultDescriptor sr sc) = do
-    let req = LsReqExecute i (ResultDescriptor sr sc)
+  execute rpc@(MkRpcState {..}) slaveIdx i = do
+    let req = LsReqExecute i
     (LocalSlaveExecuteResult resp) <- rpcCall rpc slaveIdx req
     case resp of
       RemCsResCacheMiss t -> return $ RemCsResCacheMiss t
-      ExecRes Nothing -> return (ExecRes Nothing)
-      ExecRes (Just bs) -> do
-        case S.decode bs of
-          Left err -> error ("decode failed: " ++ err)
-          Right r -> return (ExecRes $ Just r)
+      ExecRes -> return ExecRes
       ExecResError err -> return (ExecResError err)
   cache rpc@(MkRpcState {..}) slaveIdx i bs = do
     let req = LsReqCache i bs
@@ -169,11 +165,12 @@ instance (S.Serialize a) => RemoteClass RpcState a where
     (LsRespBool b) <- rpcCall rpc slaveIdx req
     return b
 
-  isCached rpc@(MkRpcState {..}) slaveIdx i = do
-    let req = LsReqIsCached i
-    (LsRespBool b) <- rpcCall rpc slaveIdx req
-    return b
-
+  fetch rpc@(MkRpcState {..}) slaveIdx i = do
+    let req = LsReqFetch i
+    (LsFetch bsM) <- rpcCall rpc slaveIdx req
+    case bsM of
+      Just bs -> return $ S.decode bs
+      Nothing -> return $ Left "Cannot fetch result"
 
   reset rpc@(MkRpcState {..}) slaveIdx = do
     let seed = fromJust rpcSeed
