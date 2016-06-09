@@ -1,5 +1,8 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverlappingInstances #-}
@@ -7,7 +10,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Blast.Internal.Types
 where
@@ -25,68 +29,71 @@ import qualified  Data.Vault.Strict as V
 import            Data.Vector as Vc
 import            GHC.Generics (Generic)
 
-{-
-data RemoteValue a =
-  RemoteValue a
-  |CachedRemoteValue
-  deriving (Generic, Show)
--}
-
-data ResultDescriptor b = ResultDescriptor Bool Bool  -- ^ should be returned + should be cached
-  deriving (Generic, Show)
-
-instance Functor ResultDescriptor where
-  fmap _ (ResultDescriptor sr sc) = (ResultDescriptor sr sc)
 
 data CachedValType = CachedArg | CachedFreeVar
   deriving (Show, Generic)
 
-data RemoteClosureResult b =
+data RemoteClosureResult =
   RemCsResCacheMiss CachedValType
-  |ExecRes (Maybe b)      -- Nothing when results are not returned
+  |ExecRes
   |ExecResError String    --
   deriving (Generic, Show)
 
 
-instance NFData (RemoteClosureResult BS.ByteString)
+instance NFData RemoteClosureResult
 instance NFData CachedValType
-instance NFData (ResultDescriptor BS.ByteString)
 
-type RemoteClosureImpl = V.Vault -> ResultDescriptor (BS.ByteString) -> IO (RemoteClosureResult BS.ByteString, V.Vault)
+type RemoteClosureImpl = V.Vault -> IO (RemoteClosureResult, V.Vault)
 
 type Cacher = BS.ByteString -> V.Vault -> V.Vault
+type CacherReader = V.Vault -> Maybe BS.ByteString
 type UnCacher = V.Vault -> V.Vault
 type IsCached = V.Vault -> Bool
 
-data CacheInfo = MkCacheInfo {
-  _cacher :: Cacher
-  , _unCache :: UnCacher
-  , _getIsCached :: IsCached
-  }
 
 data Info = Info {
   _nbRef :: Int
-  , _remoteClosure :: Maybe RemoteClosureImpl
-  , _cacheInfo :: Maybe CacheInfo
+  , _info :: NodeTypeInfo
+  }
+
+data NodeTypeInfo =
+  NtRMap RMapInfo
+  |NtRConst RConstInfo
+  |NtLExp LExpInfo
+  |NtLExpNoCache
+
+data RMapInfo = MkRMapInfo {
+  _rmRemoteClosure :: RemoteClosureImpl
+  , _rmUnCacher :: UnCacher
+  , _rmCacheReader :: Maybe CacherReader
+  }
+
+data RConstInfo = MkRConstInfo {
+  _rcstCacher :: Cacher
+  , _rcstUnCacher :: UnCacher
+  , _rcstCacheReader :: Maybe CacherReader
+  }
+
+data LExpInfo = MkLExpInfo {
+  _lexpCacher :: Cacher
+  , _lexpUnCacher :: UnCacher
   }
 
 $(makeLenses ''Info)
 
 type InfoMap = M.Map Int Info
 
-data Rdd a = Rdd [a]
-  deriving (Show, Generic, S.Serialize)
-
-data Fun a b =
+data Fun k a b =
   Pure (a -> IO b)
-  |forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => Closure (LocalExp c) (c -> a -> IO b)
+  |forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => Closure (LocalExp k c) (c -> a -> IO b)
 
-data FoldFun a r =
+data FoldFun k a r =
   FoldPure (r -> a -> IO r)
-  |forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => FoldClosure (LocalExp c) (c -> r -> a -> IO r)
+  |forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => FoldClosure (LocalExp k c) (c -> r -> a -> IO r)
 
-data ExpClosure a b =
-  forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => ExpClosure (LocalExp c) (c -> a -> IO b)
+
+data ExpClosure k a b =
+  forall c . (S.Serialize c, Show c, ChunkableFreeVar c) => ExpClosure (LocalExp k c) (c -> a -> IO b)
 
 data Partition a =
   Singleton Int a
@@ -114,27 +121,78 @@ class ChunkableFreeVar a where
 instance ChunkableFreeVar a
 instance ChunkableFreeVar ()
 
-data RemoteExp a where
-  RMap :: Int -> V.Key b -> ExpClosure a b -> RemoteExp a -> RemoteExp b
-  RConst :: (S.Serialize a, Chunkable a) => Int -> V.Key a -> a -> RemoteExp a
+
+data Kind = Master | Slave
+
+data RemoteExpCtor = RMapCtor | RConstCtor
+data LocalExpCtor = LConstCtor | CollectCtor | FMapCtor
+
+
+newtype Ann a = Ann a
+
+type family RMapAnn (k::Kind) a where
+  RMapAnn 'Master a = Ann ()
+  RMapAnn 'Slave a = Ann (V.Key a)
+
+type family RConstAnn (k::Kind) a where
+  RConstAnn 'Master a = Ann ()
+  RConstAnn 'Slave a = Ann (V.Key a)
+
+
+type family LConstAnn (k::Kind) a where
+  LConstAnn 'Master a = Ann (LocalKey a)
+  LConstAnn 'Slave a = Ann (V.Key a)
+
+type family FMapAnn (k::Kind) a where
+  FMapAnn 'Master a = Ann (LocalKey a)
+  FMapAnn 'Slave a = Ann (V.Key a)
+
+type family CollectAnn (k::Kind) a where
+  CollectAnn 'Master a = Ann (LocalKey a)
+  CollectAnn 'Slave a = Ann (V.Key a)
+
+
+data RemoteExp (k::Kind) a where
+  RMap :: Int -> RMapAnn k b -> ExpClosure k a b -> RemoteExp k a -> RemoteExp k b
+  RConst :: (S.Serialize a, Chunkable a) => Int -> RConstAnn k a -> a -> RemoteExp k a
 
 type LocalKey a = V.Key (a, Maybe (Partition BS.ByteString))
 
-data LocalExp a where
-  LConst :: Int -> LocalKey a -> a -> LocalExp a
-  Collect :: (S.Serialize a, UnChunkable a) => Int -> LocalKey a -> RemoteExp a -> LocalExp a
-  FMap :: Int -> LocalKey b -> LocalExp (a -> b) -> LocalExp a -> LocalExp b
+data LocalExp (k::Kind) a where
+  LConst :: Int -> LConstAnn k a -> a -> LocalExp k a
+  Collect :: (S.Serialize a, UnChunkable a) => Int -> CollectAnn k a -> RemoteExp k a -> LocalExp k a
+  FMap :: Int -> FMapAnn k b -> LocalExp k (a -> b) -> LocalExp k a -> LocalExp k b
 
 
-instance Show (RemoteExp a) where
-  show (RMap i _ (ExpClosure ce _) e) = show ("Map closure"::String, i,  e, ce)
-  show (RConst i _ _) = show ("ConstRemote"::String, i)
+instance Show (RemoteExp (k::Kind) a) where
+  show (RMap i ann (ExpClosure ce _) e) = show ("Map closure"::String, i, e)
+  show (RConst i ann _) = show ("ConstRemote"::String, i)
 
-instance Show (LocalExp a) where
-  show (LConst i _ _) = show ("ConstLocal"::String, i)
-  show (Collect i _ a) = show ("Collect"::String, i, show a)
-  show (FMap i _ _ e) = show ("FMap"::String, i,  e)
+--instance Show (RemoteExp 'Slave a) where
+--  show (RMap ann (ExpClosure ce _) e) = show ("Map closure"::String, ann,  e, ce)
+--  show (RConst ann _) = show ("ConstRemote"::String, ann)
 
+instance Show (LocalExp (k::Kind) a) where
+  show (LConst i ann _) = show ("ConstLocal"::String, i)
+  show (Collect i ann a) = show ("Collect"::String, i, show a)
+  show (FMap i ann _ e) = show ("FMap"::String, i, e)
+
+--showLConst :: 'LConst
+
+{-}
+instance Show (LocalExp 'Slave a) where
+  show (LConst ann _) = show ("ConstLocal"::String, ann)
+  show (Collect ann a) = show ("Collect"::String, ann, show a)
+  show (FMap ann _ e) = show ("FMap"::String, ann,  e)
+
+instance (Show (LAnnotation k 'LConstCtor a)
+         ,Show (LAnnotation k 'CollectCtor a)
+         ,Show (LAnnotation k 'FMapCtor a)) =>
+         Show (LocalExp k a) where
+  show (LConst ann _) = show ("ConstLocal"::String, ann)
+  show (Collect ann a) = show ("Collect"::String, ann, show a)
+  show (FMap ann _ e) = show ("FMap"::String, ann,  e)
+-}
 
 -- TODO to improve
 instance Chunkable [a] where
@@ -168,16 +226,14 @@ instance NodeIndexer (Int, a) where
 
 data JobDesc m a b = MkJobDesc {
   seed :: a
-  , expGen :: a -> StateT Int m (LocalExp (a, b))
+  , expGen :: forall k. a -> StateT Int m (LocalExp k (a, b))
   , reportingAction :: a -> b -> IO a
   , recPredicate :: a -> Bool
   }
 
 
-instance Binary (RemoteClosureResult BS.ByteString)
+instance Binary RemoteClosureResult
 instance Binary CachedValType
-instance Binary (ResultDescriptor BS.ByteString)
---instance Binary (RemoteValue BS.ByteString)
 
 data Config = MkConfig
   {

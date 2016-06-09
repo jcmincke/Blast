@@ -15,17 +15,17 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:
-    Blast
+--    Blast
     Blast.Types
     Blast.Syntax
-    Blast.Optimizer
-    Blast.Analyser
-    Blast.Runner.Simple
-    Blast.Distributed.Master
-    Blast.Distributed.Slave
-    Blast.Distributed.Types
-    Blast.Distributed.Rpc.Local
-    Blast.Distributed.Rpc.CloudHaskell
+--    Blast.Optimizer
+--    Blast.Analyser
+--    Blast.Runner.Simple
+--    Blast.Distributed.Master
+--    Blast.Distributed.Slave
+--    Blast.Distributed.Types
+--    Blast.Distributed.Rpc.Local
+--    Blast.Distributed.Rpc.CloudHaskell
   other-modules:
     Blast.Internal.Types
   build-depends:       base >= 4.7 && < 5
