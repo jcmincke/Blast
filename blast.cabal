@@ -18,6 +18,11 @@ library
 --    Blast
     Blast.Types
     Blast.Syntax
+    Blast.Common.Analyser
+    Blast.Slave.Analyser
+    Blast.Master.Analyser
+    Blast.Master.Optimizer
+    Blast.Slave.Optimizer
 --    Blast.Optimizer
 --    Blast.Analyser
 --    Blast.Runner.Simple
@@ -46,6 +51,7 @@ library
     , hashable
     , lens
     , monad-logger
+    , operational
     , random
     , syb
     , text
