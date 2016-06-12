@@ -1,13 +1,14 @@
-
-
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+
 
 module Blast.Distributed.Rpc.Local
 
@@ -31,23 +32,24 @@ import qualified  Data.Vault.Strict as V
 import            System.Random
 
 import Blast.Types
-import Blast.Analyser
-import Blast.Optimizer
+import Blast.Common.Analyser
+import   Blast.Master.Analyser as Ma
+import   Blast.Master.Optimizer as Ma
+import   Blast.Slave.Analyser as Sl
+import   Blast.Slave.Optimizer as Sl
 import Blast.Distributed.Types
 import Blast.Distributed.Master
 import Blast.Distributed.Slave
 
 
-
-
-runSimpleLocalRec ::
+runSimpleLocalRec :: forall a b m s.
   (S.Serialize a, S.Serialize b, RemoteClass s a, MonadIO m, MonadLoggerIO m) =>
-  Config -> s a -> JobDesc m a b -> m (a, b)
+  Config -> s a -> JobDesc (StateT Int m) MExp a b -> m (a, b)
 runSimpleLocalRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
-  (e, count) <- runStateT (expGen seed) 0
-  infos <- execStateT (analyseLocal e) M.empty
+  ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
+  infos <- execStateT (Ma.analyseLocal e) M.empty
   (infos', e') <- if shouldOptimize
-                    then runStdoutLoggingT $ optimize count infos e
+                    then runStdoutLoggingT $ Ma.optimize count infos e
                     else return (infos, e)
   s' <- liftIO $ setSeed s seed
   ((a, b), _) <- evalStateT (runSimpleLocal infos' e') (s', V.empty)
@@ -138,7 +140,7 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
 
 
 createSimpleRemote :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>
-      Config -> Int -> (a -> StateT Int m (LocalExp (a, b)))
+      Config -> Int -> (a -> StateT Int m (SExp 'Local (a, b)))
       -> m (SimpleRemote a)
 createSimpleRemote cf@(MkConfig {..}) nbSlaves expGen = do
   m <- liftIO $ foldM proc M.empty [0..nbSlaves-1]

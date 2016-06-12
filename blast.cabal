@@ -23,6 +23,12 @@ library
     Blast.Master.Analyser
     Blast.Master.Optimizer
     Blast.Slave.Optimizer
+    Blast.Runner.Simple
+    Blast.Distributed.Types
+    Blast.Distributed.Slave
+    Blast.Distributed.Master
+    Blast.Distributed.Rpc.Local
+    Blast.Distributed.Rpc.CloudHaskell
 --    Blast.Optimizer
 --    Blast.Analyser
 --    Blast.Runner.Simple

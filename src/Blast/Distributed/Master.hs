@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -27,10 +28,15 @@ import qualified  Data.Vector as Vc
 
 import Blast.Internal.Types
 import Blast.Distributed.Types
-import Blast.Analyser
+import Blast.Common.Analyser
+import Blast.Master.Analyser
+import Blast.Master.Optimizer
 
 
-
+getLocalVaultKey :: MExp 'Local a -> LocalKey a
+getLocalVaultKey (MLConst _ k _) = k
+getLocalVaultKey (MCollect _ k _) = k
+getLocalVaultKey (MLApply _ k _ _) = k
 
 getRemote :: (Monad m) => StateT (s, V.Vault) m s
 getRemote = do
@@ -47,8 +53,8 @@ setVault vault= do
   (s, _) <- get
   put (s, vault)
 
-runSimpleRemoteOneSlaveRMapNoRet ::(RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x , V.Vault) m ()
-runSimpleRemoteOneSlaveRMapNoRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = do
+runSimpleRemoteOneSlaveRMapNoRet ::(RemoteClass s x, MonadIO m) => Int -> InfoMap -> MExp 'Remote a -> StateT (s x , V.Vault) m ()
+runSimpleRemoteOneSlaveRMapNoRet slaveId m oe@(MRApply n (ExpClosure ce _) e) = do
   s <- getRemote
   r <- liftIO $ execute s slaveId n
   case r of
@@ -67,16 +73,16 @@ runSimpleRemoteOneSlaveRMapNoRet slaveId m oe@(RMap n _ (ExpClosure ce _) e) = d
           runSimpleRemoteOneSlaveRMapNoRet slaveId m oe
     RemCsResCacheMiss CachedArg -> do
       case e of
-        (RMap _ _ _ _) -> runSimpleRemoteOneSlaveRMapNoRet slaveId m e
-        (RConst _ _ _) -> runSimpleRemoteOneSlaveRConstNoRet slaveId m e
+        (MRApply _ _ _) -> runSimpleRemoteOneSlaveRMapNoRet slaveId m e
+        (MRConst _ _ _) -> runSimpleRemoteOneSlaveRConstNoRet slaveId m e
       runSimpleRemoteOneSlaveRMapNoRet slaveId m oe
       -- todo uncache e if should not be cached
     ExecRes -> return ()
     ExecResError err -> error ( "remote call: " ++ err)
 
-runSimpleRemoteOneSlaveRConstNoRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int -> InfoMap -> RemoteExp a -> StateT (s x , V.Vault) m ()
+runSimpleRemoteOneSlaveRConstNoRet ::(S.Serialize a, RemoteClass s x, MonadIO m) => Int -> InfoMap -> MExp 'Remote a -> StateT (s x , V.Vault) m ()
 
-runSimpleRemoteOneSlaveRConstNoRet slaveId _ (RConst n _ a) = do
+runSimpleRemoteOneSlaveRConstNoRet slaveId _ (MRConst n _ a) = do
   s <- getRemote
   let nbSlaves = getNbSlaves s
   -- todo chunk is applied for each slave , not efficient, to fix
@@ -89,14 +95,14 @@ runSimpleRemoteOneSlaveRConstNoRet slaveId _ (RConst n _ a) = do
 
 fetchOnSlaveResults :: forall a s x m.
   (S.Serialize a, RemoteClass s x, MonadIO m)
-  => Int -> InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m a
+  => Int -> InfoMap -> MExp 'Remote a -> StateT (s x, V.Vault) m a
 fetchOnSlaveResults slaveId m e = do
   s <- getRemote
   let n = getRemoteIndex e
   (rM::Either String a) <- liftIO $ fetch s slaveId n
   case rM of
     Right r -> return r
-    Left err -> error ("Cannot fetch results: "++ show e)
+    Left err -> error ("Cannot fetch results: "++ show err)
 
 fetchResults m e = do
   s <- getRemote
@@ -107,9 +113,9 @@ fetchResults m e = do
   return $ unChunk r
 
 
-runSimpleRemoteNoRet ::(S.Serialize a, UnChunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> RemoteExp a -> StateT (s x, V.Vault) m ()
+runSimpleRemoteNoRet ::(S.Serialize a, UnChunkable a, RemoteClass s x, MonadLoggerIO m) => InfoMap -> MExp 'Remote a -> StateT (s x, V.Vault) m ()
 
-runSimpleRemoteNoRet m oe@(RMap _ _ (ExpClosure ce _) _) = do
+runSimpleRemoteNoRet m oe@(MRApply _ (ExpClosure ce _) _) = do
   s <- getRemote
   cp <- runSimpleLocal m ce
   case cp of
@@ -128,7 +134,7 @@ runSimpleRemoteNoRet m oe@(RMap _ _ (ExpClosure ce _) _) = do
 
 
 
-runSimpleRemoteNoRet m e@(RConst _ _ _) = do
+runSimpleRemoteNoRet m e@(MRConst _ _ _) = do
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
@@ -137,13 +143,13 @@ runSimpleRemoteNoRet m e@(RConst _ _ _) = do
   return ()
 
 
-runLocalFun :: (RemoteClass s x, MonadLoggerIO m) => InfoMap -> ExpClosure a b -> StateT (s x, V.Vault) m (a -> IO b)
+runLocalFun :: (RemoteClass s x, MonadLoggerIO m) => InfoMap -> ExpClosure MExp a b -> StateT (s x, V.Vault) m (a -> IO b)
 runLocalFun m (ExpClosure e f) = do
   (e', _) <- runSimpleLocal m e
   return $ f e'
 
-runSimpleLocal ::(RemoteClass s x, MonadLoggerIO m) => InfoMap -> LocalExp a -> StateT (s x, V.Vault) m (a, Maybe (Partition BS.ByteString))
-runSimpleLocal _ (LConst _ key a) = do
+runSimpleLocal ::(RemoteClass s x, MonadLoggerIO m) => InfoMap -> MExp 'Local a -> StateT (s x, V.Vault) m (a, Maybe (Partition BS.ByteString))
+runSimpleLocal _ (MLConst _ key a) = do
   vault <- getVault
   let cvm = V.lookup key vault
   case cvm of
@@ -152,7 +158,7 @@ runSimpleLocal _ (LConst _ key a) = do
       setVault (V.insert key (a, Nothing) vault)
       return (a, Nothing)
 
-runSimpleLocal m (Collect _ key e) = do
+runSimpleLocal m (MCollect _ key e) = do
   vault <- getVault
   let cvm = V.lookup key vault
   case cvm of
@@ -164,7 +170,7 @@ runSimpleLocal m (Collect _ key e) = do
       setVault (V.insert key (a, Nothing) vault')
       return (a, Nothing)
 
-runSimpleLocal m (FMap _ key f e) = do
+runSimpleLocal m (MLApply _ key f e) = do
   vault <- getVault
   let cvm = V.lookup key vault
   case cvm of

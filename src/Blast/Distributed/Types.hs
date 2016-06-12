@@ -21,7 +21,8 @@ import qualified  Data.Serialize as S
 
 import            GHC.Generics (Generic)
 
-import Blast.Internal.Types
+import            Blast.Internal.Types
+import            Blast.Common.Analyser
 
 
 type RemoteClosureIndex = Int

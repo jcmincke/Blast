@@ -182,7 +182,7 @@ rfold fp zero e = do
  --          , ChunkableFreeVar r) =>
   --       FoldFun a r -> (t r -> r) -> LocalExp r -> RemoteExp (t a) -> StateT s m (LocalExp r)
 rfold' ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, MonadIO m
-            , S.Serialize (t r))
+            , S.Serialize (t r), UnChunkable (t r))
           => FoldFun e a r -> (t r -> r) -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Local r)
 rfold' f aggregator zero a = do
   rs <- rfold f zero a
@@ -208,11 +208,11 @@ fromList' :: (Applicative t, Foldable t, Monoid (t a)) => [a] -> t a
 fromList' l = foldMap pure l
 
 
-rjoin :: (Builder m e, MonadIO m, S.Serialize (t a), S.Serialize (t b),
-          ChunkableFreeVar (t a),
-          Traversable t, Applicative t
-          , Joinable a b, Monoid (t (a, b))) =>
-         e 'Remote (t a) -> e 'Remote (t b) -> ProgramT (Syntax m) m (e 'Remote (t (a, b)))
+--rjoin :: (Builder m e, MonadIO m, Chunkable (t a), UnChunkable (t b),
+--          ChunkableFreeVar (t a),
+--          Traversable t, Applicative t
+--          , Joinable a b, Monoid (t (a, b))) =>
+--         e 'Remote (t a) -> e 'Remote (t b) -> ProgramT (Syntax m) m (e 'Remote (t (a, b)))
 rjoin a b = do
   a' <- collect a
   let cs = ExpClosure a' (\av bv -> return $ fromList' $ catMaybes [join a b | a <- toList av, b <- toList bv])

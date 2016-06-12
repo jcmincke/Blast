@@ -76,40 +76,21 @@ data FoldFun e a r =
 data ExpClosure e a b =
   forall c . (S.Serialize c, ChunkableFreeVar c) => ExpClosure (e 'Local c) (c -> a -> IO b)
 
-{-}
-class Builder e where
-  makeRApply :: (Monad m) => ExpClosure e a b -> e 'Remote a -> m (e 'Remote b)
-  makeRConst :: (Monad m) => a -> m (e 'Remote a)
-  makeLConst :: (Monad m) => a -> m (e 'Local a)
-  makeCollect :: (Monad m) => e 'Remote a -> m (e 'Local a)
-  makeLApply :: (Monad m) => e' Local (a -> b) -> e 'Local a -> m (e 'Local b)
-
--}
-
 class Builder m e where
   makeRApply :: ExpClosure e a b -> e 'Remote a -> m (e 'Remote b)
-  makeRConst :: (S.Serialize a) => a -> m (e 'Remote a)
+  makeRConst :: (Chunkable a, S.Serialize a) => a -> m (e 'Remote a)
   makeLConst :: a -> m (e 'Local a)
-  makeCollect :: (S.Serialize a) => e 'Remote a -> m (e 'Local a)
+  makeCollect :: (UnChunkable a, S.Serialize a) => e 'Remote a -> m (e 'Local a)
   makeLApply :: e 'Local (a -> b) -> e 'Local a -> m (e 'Local b)
 
 
 data Syntax m e where
   StxRApply :: (Builder m e) => ExpClosure e a b -> e 'Remote a -> Syntax m (e 'Remote b)
-  StxRConst :: (Builder m e, S.Serialize a) => a -> Syntax m (e 'Remote a)
+  StxRConst :: (Builder m e, Chunkable a, S.Serialize a) => a -> Syntax m (e 'Remote a)
   StxLConst :: (Builder m e) => a -> Syntax m (e 'Local a)
-  StxCollect :: (Builder m e, S.Serialize a) => e 'Remote a -> Syntax m (e 'Local a)
+  StxCollect :: (Builder m e, UnChunkable a, S.Serialize a) => e 'Remote a -> Syntax m (e 'Local a)
   StxLApply :: (Builder m e) => e 'Local (a -> b) -> e 'Local a -> Syntax m (e 'Local b)
 
-{-
-data Syntax e where
-  StxRApply :: (Builder e) => ExpClosure e a b -> e 'Remote a -> Syntax (e 'Remote b)
-  StxRConst :: (Builder e) => a -> Syntax (e 'Remote a)
-  StxLConst :: (Builder e) => a -> Syntax (e 'Local a)
-  StxCollect :: (Builder e) => e 'Remote a -> Syntax (e 'Local a)
-  StxLApply :: (Builder e) => e 'Local (a -> b) -> e 'Local a -> Syntax (e 'Local b)
-
--}
 
 rapply f a = singleton (StxRApply f a)
 rconst a = singleton (StxRConst a)
@@ -140,4 +121,22 @@ build p = do
       build (is e)
 
 data Location = M | S
+
+
+
+data JobDesc m e a b = MkJobDesc {
+  seed :: a
+  , expGen :: a -> ProgramT (Syntax m) m (e 'Local (a, b)) --StateT Int m (LocalExp (a, b))
+  , reportingAction :: a -> b -> IO a
+  , recPredicate :: a -> Bool
+  }
+
+
+
+
+data Config = MkConfig
+  {
+    shouldOptimize :: Bool
+    , slaveAvailability :: Float
+  }
 

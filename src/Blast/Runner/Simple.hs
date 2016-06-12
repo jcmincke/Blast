@@ -1,6 +1,12 @@
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 
@@ -10,58 +16,69 @@ where
 
 
 
+import            Data.Functor.Identity
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
-import qualified  Data.Map as M
 
 import            Blast.Types
-import            Blast.Analyser
-import            Blast.Optimizer
---import            Blast.Master
 
 
 
 
-runRec :: (Monad m, MonadLoggerIO m) => Config -> JobDesc m a b -> m (a, b)
-runRec config@(MkConfig {..}) (jobDesc@MkJobDesc {..}) = do
-  $(logInfo) "Analysing"
-  (e, count) <- runStateT (expGen seed) 0
-  infos <- execStateT (analyseLocal e) M.empty
-  (_, e') <-  if shouldOptimize
-                then optimize count infos e
-                else return (infos, e)
-  $(logInfo) "Evaluating"
+data Exp (k::Kind) a where
+  RApply :: ExpClosure Exp a b -> Exp 'Remote a -> Exp 'Remote b
+  RConst ::  a -> Exp 'Remote a
+  LConst :: a -> Exp 'Local a
+  Collect :: Exp 'Remote a -> Exp 'Local a
+  LApply :: Exp 'Local (a -> b) -> Exp 'Local a -> Exp 'Local b
 
-  (a,b) <- liftIO $ runLocal e'
+
+instance Builder Identity Exp where
+  makeRApply f a = do
+    return $ RApply f a
+  makeRConst a = do
+    return $ RConst a
+  makeLConst a = do
+    return $ LConst a
+  makeCollect a = do
+    return $ Collect a
+  makeLApply f a = do
+    return $ LApply f a
+
+
+runRec :: forall a b m.(Monad m, Builder m Exp, MonadLoggerIO m) => JobDesc m Exp a b -> m (a, b)
+runRec (jobDesc@MkJobDesc {..}) = do
+  (e::Exp 'Local (a,b)) <- build (expGen seed)
+  (a,b) <- liftIO $ runLocal e
   a' <- liftIO $ reportingAction a b
   case recPredicate a' of
     True -> do
-      $(logInfo) "Finished"
+    --      $(logInfo) "Finished"
       return (a', b)
-    False -> runRec config (jobDesc {seed = a'})
+    False -> runRec (jobDesc {seed = a'})
 
 
 
-runFun :: ExpClosure a b -> IO (a -> IO b)
+runFun :: ExpClosure Exp a b -> IO (a -> IO b)
 runFun (ExpClosure e f) = do
   r <- runLocal e
   return $ f r
 
 
 
-runRemote :: RemoteExp a -> IO a
-runRemote (RMap _ _ cs e) = do
+runRemote :: Exp 'Remote a -> IO a
+runRemote (RApply cs e) = do
   f' <- runFun cs
   e' <- runRemote e
   f' e'
 
-runRemote (RConst _ _ e) = return e
+runRemote (RConst e) = return e
 
-runLocal :: LocalExp a -> IO a
-runLocal (Collect _ _ e) = runRemote e
-runLocal (LConst _ _ a) = return a
-runLocal (FMap _ _ f e) = do
+runLocal ::  Exp 'Local a -> IO a
+runLocal (Collect e) = runRemote e
+runLocal (LConst a) = return a
+runLocal (LApply f e) = do
   f' <- runLocal f
   e' <- runLocal e
   return $ f' e'

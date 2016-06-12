@@ -46,8 +46,11 @@ import            GHC.Generics (Generic)
 
 
 import            Blast.Types
-import            Blast.Analyser
-import            Blast.Optimizer
+import   Blast.Common.Analyser
+import   Blast.Master.Analyser as Ma
+import   Blast.Master.Optimizer as Ma
+import   Blast.Slave.Analyser as Sl
+import   Blast.Slave.Optimizer as Sl
 import            Blast.Distributed.Types
 import            Blast.Distributed.Master
 import            Blast.Distributed.Slave

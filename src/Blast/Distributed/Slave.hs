@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -23,21 +24,22 @@ import qualified  Data.Vault.Strict as V
 
 import Blast.Internal.Types
 import Blast.Distributed.Types
-import Blast.Analyser
-import Blast.Optimizer
+import Blast.Common.Analyser
+import Blast.Slave.Analyser
+import Blast.Slave.Optimizer
 
 
 
 
 data LocalSlave m a b = MkLocalSlave {
   localSlaveId :: Int
-  , infos :: M.Map Int Info
+  , infos :: InfoMap
   , vault :: V.Vault
-  , expGen :: a -> StateT Int m (LocalExp (a, b))
+  , expGen :: a -> StateT Int m (SExp 'Local (a, b))
   , config :: Config
   }
 
-
+type Info = GenericInfo NodeTypeInfo
 
 runCommand :: (S.Serialize a, MonadLoggerIO m) => LocalSlave m a b -> LocalSlaveRequest -> m (LocalSlaveResponse, LocalSlave m a b)
 runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
@@ -54,37 +56,37 @@ runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
 runCommand ls LsReqStatus = return (LsRespBool (not $ M.null $ infos ls), ls)
 runCommand ls (LsReqExecute i ) = do
     case M.lookup i (infos ls) of
-      Just  (Info _ (NtRMap (MkRMapInfo cs _ _))) -> do
+      Just  (GenericInfo _ (NtRMap (MkRMapInfo cs _ _))) -> do
         (res, vault') <- liftIO $ cs (vault ls)
         let ls' = ls {vault =  vault'}
         return (LocalSlaveExecuteResult res, ls')
       _ -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
 runCommand ls (LsReqCache i bs) =
     case M.lookup i (infos ls) of
-      Just (Info _ (NtRConst (MkRConstInfo cacherFun _ _))) -> do
+      Just (GenericInfo _ (NtRConst (MkRConstInfo cacherFun _ _))) -> do
         let vault' = cacherFun bs (vault ls)
         return (LsRespBool True, ls {vault = vault'})
-      Just (Info _ (NtLExp (MkLExpInfo cacherFun _))) -> do
+      Just (GenericInfo _ (NtLExp (MkLExpInfo cacherFun _))) -> do
         let vault' = cacherFun bs (vault ls)
         return (LsRespBool True, ls {vault = vault'})
-      _ -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
+      _ -> return (LocalSlaveExecuteResult (ExecResError ("GenericInfo not found: "++show i)), ls)
 runCommand ls (LsReqUncache i) = do
     case M.lookup i (infos ls) of
-      Just (Info _ (NtRMap (MkRMapInfo _ unCacherFun _))) -> do
+      Just (GenericInfo _ (NtRMap (MkRMapInfo _ unCacherFun _))) -> do
         let vault' = unCacherFun (vault ls)
         return (LsRespBool True, ls {vault = vault'})
-      Just (Info _ (NtRConst (MkRConstInfo _ unCacherFun _))) -> do
+      Just (GenericInfo _ (NtRConst (MkRConstInfo _ unCacherFun _))) -> do
         let vault' = unCacherFun (vault ls)
         return (LsRespBool True, ls {vault = vault'})
-      Just (Info _ (NtLExp (MkLExpInfo _ unCacherFun))) -> do
+      Just (GenericInfo _ (NtLExp (MkLExpInfo _ unCacherFun))) -> do
         let vault' = unCacherFun (vault ls)
         return (LsRespBool True, ls {vault = vault'})
-      _ -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
+      _ -> return (LocalSlaveExecuteResult (ExecResError ("GenericInfo not found: "++show i)), ls)
 runCommand ls (LsReqFetch i) = do
     case M.lookup i (infos ls) of
-      Just (Info _ (NtRMap (MkRMapInfo _ _ (Just cacheReaderFun)))) -> do
+      Just (GenericInfo _ (NtRMap (MkRMapInfo _ _ (Just cacheReaderFun)))) -> do
         return (LsFetch $ cacheReaderFun (vault ls), ls)
-      Just (Info _ (NtRConst (MkRConstInfo _ _ (Just cacheReaderFun)))) -> do
+      Just (GenericInfo _ (NtRConst (MkRConstInfo _ _ (Just cacheReaderFun)))) -> do
         return (LsFetch $ cacheReaderFun (vault ls), ls)
       _ -> return $ trace ("no cache reader for node: " ++ show i) (LsFetch Nothing, ls)
 

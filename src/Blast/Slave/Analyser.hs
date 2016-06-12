@@ -18,8 +18,10 @@ import            Control.DeepSeq
 import            Control.Lens (set, view)
 import            Control.Monad.Logger
 import            Control.Monad.IO.Class
+import            Control.Monad.Operational
 import            Control.Monad.Trans.Either
 import            Control.Monad.Trans.State
+import            Data.Binary (Binary)
 import qualified  Data.ByteString as BS
 import qualified  Data.Map as M
 import qualified  Data.Serialize as S
@@ -34,21 +36,12 @@ import            Blast.Common.Analyser
 
 data SExp (k::Kind) a where
   SRApply :: Int -> V.Key b -> ExpClosure SExp a b -> SExp 'Remote a -> SExp 'Remote b
-  SRConst ::  (S.Serialize a) => Int -> V.Key a -> a -> SExp 'Remote a
+  SRConst ::  (Chunkable a, S.Serialize a) => Int -> V.Key a -> a -> SExp 'Remote a
   SLConst :: Int -> V.Key a -> a -> SExp 'Local a
-  SCollect :: (S.Serialize a) => Int -> V.Key a -> SExp 'Remote a -> SExp 'Local a
+  SCollect :: (UnChunkable a, S.Serialize a) => Int -> V.Key a -> SExp 'Remote a -> SExp 'Local a
   SLApply :: Int -> V.Key b -> SExp 'Local (a -> b) -> SExp 'Local a -> SExp 'Local b
 
 
-
-{-}
-class Builder e where
-  makeRApply :: (MonadIO m) => ExpClosure e a b -> e 'Remote a -> m (e 'Remote b)
-  makeRConst :: (MonadIO m) => a -> m (e 'Remote a)
-  makeLConst :: (MonadIO m) => a -> m (e 'Local a)
-  makeCollect :: (MonadIO m) => e 'Remote a -> m (e 'Local a)
-  makeLApply :: (MonadIO m) => e' Local (a -> b) -> e 'Local a -> m (e 'Local b)
--}
 
 
 nextIndex :: (MonadIO m) => StateT Int m Int
@@ -80,25 +73,6 @@ instance (MonadIO m) => Builder (StateT Int m) SExp where
     k <- liftIO V.newKey
     return $ SLApply i k f a
 
-
-
-
-
-
-data CachedValType = CachedArg | CachedFreeVar
-  deriving (Show, Generic)
-
-data RemoteClosureResult =
-  RemCsResCacheMiss CachedValType
-  |ExecRes
-  |ExecResError String    --
-  deriving (Generic, Show)
-
-
-instance NFData RemoteClosureResult
-instance NFData CachedValType
-
-type RemoteClosureImpl = V.Vault -> IO (RemoteClosureResult, V.Vault)
 
 
 type Cacher = BS.ByteString -> V.Vault -> V.Vault
@@ -148,7 +122,7 @@ getLocalVal cvt vault key  =
 getRemoteClosure :: Int -> InfoMap -> RemoteClosureImpl
 getRemoteClosure n m =
   case M.lookup n m of
-    Just (Info _ (NtRMap (MkRMapInfo cs _ _)))   -> cs
+    Just (GenericInfo _ (NtRMap (MkRMapInfo cs _ _)))   -> cs
     Nothing -> error ("Closure does not exist for node: " ++ show n)
 
 
@@ -205,8 +179,8 @@ wrapClosure keyc keya keyb f =
 visitRApplyExp :: Int -> V.Key a -> RemoteClosureImpl -> InfoMap -> InfoMap
 visitRApplyExp n key cs m =
   case M.lookup n m of
-  Just (Info _ _) -> error ("RApply Node " ++ show n ++ " has already been visited")
-  Nothing -> M.insert n (Info 0 (NtRMap (MkRMapInfo cs (makeUnCacher key) Nothing))) m
+  Just (GenericInfo _ _) -> error ("RApply Node " ++ show n ++ " has already been visited")
+  Nothing -> M.insert n (GenericInfo 0 (NtRMap (MkRMapInfo cs (makeUnCacher key) Nothing))) m
   where
   makeUnCacher :: V.Key a -> V.Vault -> V.Vault
   makeUnCacher k vault = V.delete k vault
@@ -225,8 +199,8 @@ visitRApplyExpM n key cs = do
 visitLocalExp :: Int -> InfoMap -> InfoMap
 visitLocalExp n m =
   case M.lookup n m of
-  Just (Info _ _ ) -> error ("Node " ++ show n ++ " has already been visited")
-  Nothing -> M.insert n (Info 0 NtLExpNoCache) m
+  Just (GenericInfo _ _ ) -> error ("Node " ++ show n ++ " has already been visited")
+  Nothing -> M.insert n (GenericInfo 0 NtLExpNoCache) m
 
 
 
@@ -240,9 +214,9 @@ visitLocalExpM n = do
 addLocalExpCache :: (S.Serialize a) => Int -> V.Key a -> InfoMap -> InfoMap
 addLocalExpCache n key m =
   case M.lookup n m of
-  Just (Info c NtLExpNoCache) -> M.insert n (Info c (NtLExp (MkLExpInfo (makeCacher key) (makeUnCacher key)))) m
-  Nothing -> M.insert n (Info 0 (NtLExp (MkLExpInfo (makeCacher key) (makeUnCacher key)))) m
-  Just (Info _ (NtLExp _)) -> m
+  Just (GenericInfo c NtLExpNoCache) -> M.insert n (GenericInfo c (NtLExp (MkLExpInfo (makeCacher key) (makeUnCacher key)))) m
+  Nothing -> M.insert n (GenericInfo 0 (NtLExp (MkLExpInfo (makeCacher key) (makeUnCacher key)))) m
+  Just (GenericInfo _ (NtLExp _)) -> m
   _ ->  error ("Node " ++ show n ++ " cannot add local exp cache")
   where
   makeCacher :: (S.Serialize a) => V.Key a -> BS.ByteString -> V.Vault -> V.Vault
@@ -263,12 +237,12 @@ addLocalExpCacheM e = do
 addRemoteExpCacheReader :: (S.Serialize a) => Int -> V.Key a -> InfoMap -> InfoMap
 addRemoteExpCacheReader n key m =
   case M.lookup n m of
-  Just (Info _ (NtRMap (MkRMapInfo _ _ (Just _)))) -> m
-  Just (Info c (NtRMap (MkRMapInfo cs uncacher Nothing))) ->
-    M.insert n (Info c (NtRMap (MkRMapInfo cs uncacher (Just $ makeCacheReader key)))) m
-  Just (Info _ (NtRConst (MkRConstInfo _ _ (Just _)))) -> m
-  Just (Info c (NtRConst (MkRConstInfo cacher uncacher Nothing))) ->
-    trace ("oui") $ M.insert n (Info c (NtRConst (MkRConstInfo cacher uncacher (Just $ makeCacheReader key)))) m
+  Just (GenericInfo _ (NtRMap (MkRMapInfo _ _ (Just _)))) -> m
+  Just (GenericInfo c (NtRMap (MkRMapInfo cs uncacher Nothing))) ->
+    M.insert n (GenericInfo c (NtRMap (MkRMapInfo cs uncacher (Just $ makeCacheReader key)))) m
+  Just (GenericInfo _ (NtRConst (MkRConstInfo _ _ (Just _)))) -> m
+  Just (GenericInfo c (NtRConst (MkRConstInfo cacher uncacher Nothing))) ->
+    trace ("oui") $ M.insert n (GenericInfo c (NtRConst (MkRConstInfo cacher uncacher (Just $ makeCacheReader key)))) m
   _ ->  error ("Node " ++ show n ++ " cannot add remote exp cache reader")
   where
   makeCacheReader :: (S.Serialize a) => V.Key a -> V.Vault -> Maybe BS.ByteString
@@ -358,8 +332,8 @@ analyseRemote (SRApply n keyb cs@(ExpClosure ce _) a) =
   visitRApply :: Int -> V.Key a -> RemoteClosureImpl -> InfoMap -> InfoMap
   visitRApply n key cs m =
     case M.lookup n m of
-    Just (Info _ _) -> error ("RMap Node " ++ show n ++ " has already been visited")
-    Nothing -> M.insert n (Info 0 (NtRMap (MkRMapInfo cs (makeUnCacher key) Nothing))) m
+    Just (GenericInfo _ _) -> error ("RMap Node " ++ show n ++ " has already been visited")
+    Nothing -> M.insert n (GenericInfo 0 (NtRMap (MkRMapInfo cs (makeUnCacher key) Nothing))) m
     where
 
     makeUnCacher :: V.Key a -> V.Vault -> V.Vault
@@ -378,8 +352,8 @@ analyseRemote (SRConst n key _) =
   visitRConst :: (S.Serialize a) => Int -> V.Key a -> InfoMap -> InfoMap
   visitRConst n key  m =
     case M.lookup n m of
-    Just (Info _ _) -> error ("RConst Node " ++ show n ++ " has already been visited")
-    Nothing -> M.insert n (Info 0 (NtRConst (MkRConstInfo (makeCacher key) (makeUnCacher key) Nothing))) m
+    Just (GenericInfo _ _) -> error ("RConst Node " ++ show n ++ " has already been visited")
+    Nothing -> M.insert n (GenericInfo 0 (NtRConst (MkRConstInfo (makeCacher key) (makeUnCacher key) Nothing))) m
     where
     makeCacher :: (S.Serialize a) => V.Key a -> BS.ByteString -> V.Vault -> V.Vault
     makeCacher k bs vault =
