@@ -36,20 +36,6 @@ import            GHC.Generics (Generic)
 
 import            Blast.Types
 
-{-}
-class Annotation a where
-  makeAnnotation :: MonadIO m => StateT s m a
-
-
-
-instance Annotation  (Ann ()) where
-  makeAnnotation = return $ Ann ()
-
-instance Annotation  (Ann (V.Key a)) where
-  makeAnnotation = do
-    key <- liftIO $ V.newKey
-    return $ Ann key
--}
 class Joinable a b where
   join :: a -> b -> Maybe (a, b)
 
@@ -79,13 +65,6 @@ foldFunIO f = FoldPure f
 
 foldClosureIO :: (S.Serialize c, Show c, ChunkableFreeVar c) => e 'Local c -> (c -> r -> a -> IO r) -> FoldFun e a r
 foldClosureIO ce f = FoldClosure ce f
-
-{-}
-mkRMap cs e = do
-  n <- nextIndex
-  ann <- makeAnnotation
-  return $ RMap n ann cs e
--}
 
 
 rmap :: (Builder m e, Traversable t, MonadIO m) =>
@@ -152,6 +131,12 @@ lfold f zero a = do
   f' <- foldl <$$> f <**> zero
   lapply f' a
 
+
+
+lfold' f zero a = do
+  f' <- lconst f
+  lfold f' zero a
+
 count ::  (Monad m, Foldable t, Builder m e)
           => e 'Local (t a) -> ProgramT (Syntax m) m (e 'Local Int)
 count e = do
@@ -188,7 +173,6 @@ rfold' f aggregator zero a = do
   rs <- rfold f zero a
   ars <- collect rs
   aggregator <$$> ars
-
 
 
 

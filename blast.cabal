@@ -15,7 +15,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:
---    Blast
+    Blast
     Blast.Types
     Blast.Syntax
     Blast.Common.Analyser

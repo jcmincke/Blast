@@ -11,10 +11,10 @@
 
 
 module Blast.Runner.Simple
+(
+  runRec
+)
 where
-
-
-
 
 import            Data.Functor.Identity
 import            Control.Monad.IO.Class
@@ -22,9 +22,6 @@ import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 
 import            Blast.Types
-
-
-
 
 data Exp (k::Kind) a where
   RApply :: ExpClosure Exp a b -> Exp 'Remote a -> Exp 'Remote b
@@ -47,7 +44,7 @@ instance Builder Identity Exp where
     return $ LApply f a
 
 
-runRec :: forall a b m.(Monad m, Builder m Exp, MonadLoggerIO m) => JobDesc m Exp a b -> m (a, b)
+runRec :: forall a b m.(Monad m, Builder m Exp, MonadLoggerIO m) => JobDesc m a b -> m (a, b)
 runRec (jobDesc@MkJobDesc {..}) = do
   (e::Exp 'Local (a,b)) <- build (expGen seed)
   (a,b) <- liftIO $ runLocal e

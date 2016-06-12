@@ -6,6 +6,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Blast.Distributed.Slave
@@ -16,6 +17,7 @@ import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
+import            Control.Monad.Operational
 
 import qualified  Data.Map as M
 import qualified  Data.Serialize as S
@@ -41,12 +43,12 @@ data LocalSlave m a b = MkLocalSlave {
 
 type Info = GenericInfo NodeTypeInfo
 
-runCommand :: (S.Serialize a, MonadLoggerIO m) => LocalSlave m a b -> LocalSlaveRequest -> m (LocalSlaveResponse, LocalSlave m a b)
+runCommand :: forall a b m. (S.Serialize a, MonadLoggerIO m) => LocalSlave m a b -> LocalSlaveRequest -> m (LocalSlaveResponse, LocalSlave m a b)
 runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
   case S.decode bs of
     Left e -> error e
     Right a -> do
-      (e, count) <- runStateT (expGen a) 0
+      ((e::SExp 'Local (a,b)), count) <- runStateT (expGen a) 0
       infos1 <- execStateT (analyseLocal e) M.empty
       (infos2, _) <- if (shouldOptimize config)
                         then optimize count infos1 e

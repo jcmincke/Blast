@@ -11,7 +11,10 @@
 
 
 module Blast.Distributed.Rpc.Local
-
+(
+  createSimpleRemote
+  , runSimpleLocalRec
+)
 where
 
 import            Control.Concurrent
@@ -44,7 +47,7 @@ import Blast.Distributed.Slave
 
 runSimpleLocalRec :: forall a b m s.
   (S.Serialize a, S.Serialize b, RemoteClass s a, MonadIO m, MonadLoggerIO m) =>
-  Config -> s a -> JobDesc (StateT Int m) MExp a b -> m (a, b)
+  Config -> s a -> JobDesc (StateT Int m) a b -> m (a, b)
 runSimpleLocalRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
   infos <- execStateT (Ma.analyseLocal e) M.empty
@@ -140,12 +143,14 @@ instance (S.Serialize a) => RemoteClass SimpleRemote a where
 
 
 createSimpleRemote :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>
-      Config -> Int -> (a -> StateT Int m (SExp 'Local (a, b)))
+      Config -> Int -> JobDesc (StateT Int m) a b
       -> m (SimpleRemote a)
-createSimpleRemote cf@(MkConfig {..}) nbSlaves expGen = do
+createSimpleRemote cf@(MkConfig {..}) nbSlaves (jobDesc@MkJobDesc {..}) = do
+
   m <- liftIO $ foldM proc M.empty [0..nbSlaves-1]
   return $ MkSimpleRemote m Nothing cf
   where
+  expGen' a = build $ expGen a
   proc acc i = do
     (iChan, oChan, ls) <- createOneSlave i M.empty
     let rc = MkRemoteChannels iChan oChan
@@ -155,8 +160,28 @@ createSimpleRemote cf@(MkConfig {..}) nbSlaves expGen = do
   createOneSlave slaveId infos = do
     iChan <- newChan
     oChan <- newChan
-    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty expGen cf)
+    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty expGen' cf)
 
+
+{-
+
+runSimpleLocalRec :: forall a b m s.
+  (S.Serialize a, S.Serialize b, RemoteClass s a, MonadIO m, MonadLoggerIO m) =>
+  Config -> s a -> JobDesc (StateT Int m) a b -> m (a, b)
+runSimpleLocalRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
+  ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
+  infos <- execStateT (Ma.analyseLocal e) M.empty
+  (infos', e') <- if shouldOptimize
+                    then runStdoutLoggingT $ Ma.optimize count infos e
+                    else return (infos, e)
+  s' <- liftIO $ setSeed s seed
+  ((a, b), _) <- evalStateT (runSimpleLocal infos' e') (s', V.empty)
+  a' <- liftIO $ reportingAction a b
+  case recPredicate a' of
+    True -> return (a', b)
+    False -> runSimpleLocalRec config s' (jobDesc {seed = a'})
+
+-}
 
 runSlave :: (S.Serialize a) => Chan LocalSlaveRequest -> Chan LocalSlaveResponse -> LocalSlave (LoggingT IO) a b -> IO ()
 runSlave inChan outChan als =

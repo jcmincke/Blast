@@ -20,10 +20,11 @@ import            Control.Distributed.Process.Closure (mkClosure, remotable)
 import            System.Environment (getArgs)
 
 import            Blast
-import            Blast.Distributed.Rpc.CloudHaskell
+--import            Blast.Distributed.Rpc.CloudHaskell
 import qualified  Blast.Runner.Simple as S
 import qualified  Blast.Distributed.Rpc.Local as Loc
-
+import Blast.Distributed.Rpc.CloudHaskell
+--import Blast.Distributed.Rpc.Local
 
 {-
 expGenerator a = do
@@ -49,28 +50,27 @@ fib n = fib (n-1) + fib (n-2)
 
 
 expGenerator (a::Int) = do
-      r1 <- rcst [ 2| _ <- [1..10::Int]]
+      r1 <- rconst [ 2| _ <- [1..10::Int]]
       r2 <- rmap (fun fib) r1
-      zero <- lcst (0::Int)
-      c1 <- lcst (0 ::Int)
+      zero <- lconst (0::Int)
+      c1 <- lconst (0 ::Int)
       a2 <- rfold' (foldClosure c1 (const (+))) sum zero r2
       --a2 <- collect r2
 --      a2 <- slocalfold r1 (foldFun (+)) zero
-      one <- lcst (1::Int)
+      one <- lconst (1::Int)
       ar2 <- collect r2
       a3 <- lfold' (*) one ar2
-      a' <- lcst (a+1)
+      a' <- lconst (a+1)
       r <- ((,) <$$> a' <**> a2)
       return r
 
 
-
 expGenerator3 (a::Int) = do
-      r1 <- rcst [KeyedVal i (i*2) | i <- [1..10::Int]]
+      r1 <- rconst [KeyedVal i (i*2) | i <- [1..10::Int]]
 
       a1 <- collect r1
 
-      a' <- lcst (a+1)
+      a' <- lconst (a+1)
       rf <- ((,) <$$> a' <**> a1)
       return rf
 
@@ -78,8 +78,8 @@ expGenerator3 (a::Int) = do
 
 
 expGenerator2 (a::Int) = do
-      r1 <- rcst [KeyedVal i (i*2) | i <- [1..10::Int]]
-      r2 <- rcst [KeyedVal i (i*3) | i <- [1..10::Int]]
+      r1 <- rconst [KeyedVal i (i*2) | i <- [1..10::Int]]
+      r2 <- rconst [KeyedVal i (i*3) | i <- [1..10::Int]]
 
       j1 <- rKeyedJoin r1 r2
       a1 <- collect j1
@@ -87,7 +87,7 @@ expGenerator2 (a::Int) = do
   --    j2 <- rKeyedJoin r1 r2
  --     a2 <- collect j2
 
-      a' <- lcst (a+1)
+      a' <- lconst (a+1)
 --      r <- ((,) <$$> a1 <**> a2)
       rf <- ((,) <$$> a' <**> a1)
       return rf
@@ -95,14 +95,23 @@ expGenerator2 (a::Int) = do
 
 reporting a b = do
   putStrLn "Reporting"
-  print a
-  print b
+  --print a
+  --print b
   putStrLn "End Reporting"
   return a
 
+--jobDesc :: (MonadIO m) => JobDesc m Int Int
+jobDesc = MkJobDesc 0 expGenerator reporting (\x -> True)
 
-jobDesc = MkJobDesc 0 expGenerator2 reporting (\x -> True)
---jobDesc = MkJobDesc True 0 expGenerator (\x -> False)
+
+rloc = do
+  let cf = MkConfig True 1.0
+  s <- runStdoutLoggingT $ Loc.createSimpleRemote cf 4 jobDesc
+  (a,b) <- runStdoutLoggingT $ Loc.runSimpleLocalRec cf s jobDesc
+  print a
+  print b
+
+
 
 rpcConfigAction = return $
   MkRpcConfig
@@ -110,13 +119,13 @@ rpcConfigAction = return $
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 
+
 slaveClosure = slaveProcess rpcConfigAction jobDesc
 
 remotable ['slaveClosure]
 
 rtable :: RemoteTable
 rtable = __remoteTable initRemoteTable
-
 
 
 main = do
@@ -129,36 +138,4 @@ main = do
     print b
     print "=========="
 
-rloc = do
-  let cf = MkConfig True 1.0
-  s <- runStdoutLoggingT $ Loc.createSimpleRemote cf 4 expGenerator2
-  (a,b) <- runStdoutLoggingT $ Loc.runSimpleLocalRec cf s jobDesc
-  print a
-  print b
-
-{-
-createSimpleRemote :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>
-      Config -> Int -> (a -> StateT Int m (LocalExp (a, b)))
-      -> m (SimpleRemote a)
-
-
-runSimpleLocalRec ::
-  (S.Serialize a, S.Serialize b, RemoteClass s a, MonadIO m, MonadLoggerIO m) =>
-  Config -> s a -> JobDesc m a b -> m (a, b)
--}
-
-rrec = do
-  let cf = MkConfig True 1.0
-  (a,b) <- runStdoutLoggingT $ runRec cf jobDesc
-  print a
-  print b
-
-
---runRec :: (MonadIO m, MonadLoggerIO m) => Bool -> (a -> StateT Int m (LocalExp (a, b))) -> a -> (a -> Bool) -> m (a, b)
-rrec' = do
-  let cf = MkConfig True 1.0
-  (a,b) <- runStdoutLoggingT $ S.runRec cf jobDesc
-  print a
-  print "kk"
-  print b
 

@@ -11,8 +11,8 @@ import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 import qualified  Data.Vault.Strict as V
 
-import Blast
-import qualified  Blast.Distributed.Rpc.Local as R
+--import Blast
+--import qualified  Blast.Distributed.Rpc.Local as R
 
 main :: IO ()
 main = return ()

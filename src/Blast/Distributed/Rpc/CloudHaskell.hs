@@ -1,5 +1,5 @@
-
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -15,7 +15,13 @@
 
 
 module Blast.Distributed.Rpc.CloudHaskell
-
+(
+  slaveProcess
+  , runRpc
+  , RpcConfig (..)
+  , MasterConfig (..)
+  , SlaveConfig (..)
+)
 where
 
 import            Control.Concurrent
@@ -96,11 +102,12 @@ instance Binary SlaveControl
 
 
 slaveProcess :: forall a b . (S.Serialize a, Typeable a, Typeable b) =>
-                IO RpcConfig -> JobDesc (LoggingT IO) a b -> Int -> Process ()
+                IO RpcConfig -> JobDesc (StateT Int (LoggingT IO)) a b -> Int -> Process ()
 slaveProcess configurator (MkJobDesc {..}) slaveIdx = do
   (MkRpcConfig config _ (MkSlaveConfig {..})) <- liftIO configurator
   liftIO $ putStrLn $ "starting slave process: " ++ show slaveIdx
-  let slaveState = MkLocalSlave slaveIdx M.empty V.empty expGen config
+  let expGen' a = build (expGen a)
+  let slaveState = MkLocalSlave slaveIdx M.empty V.empty expGen' config
 
   let (server::ProcessDefinition (LocalSlave (LoggingT IO) a b)) = defaultProcess {
       apiHandlers = [handleCall (handle slaveLogger)]
@@ -205,7 +212,7 @@ instance (S.Serialize a) => RemoteClass RpcState a where
 
 
 
-startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) => RpcConfig -> JobDesc (LoggingT IO) a b ->
+startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) => RpcConfig -> JobDesc (StateT Int (LoggingT IO)) a b ->
    (Int -> Closure (Process())) -> (a -> b -> IO()) -> Backend -> [NodeId] -> Process ()
 startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc slaveClosure k backend _ = do
   loop 0 theJobDesc
@@ -218,7 +225,7 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
     selfNode <- getSelfNode
     nodeIds <- liftIO $ findPeers backend 1000000
     return $ nodeIds L.\\ [selfNode]
-  loop :: Int -> JobDesc (LoggingT IO) a b -> Process ()
+  loop :: Int -> JobDesc (StateT Int (LoggingT IO)) a b -> Process ()
   loop n (jobDesc@MkJobDesc {..}) = do
     nodeIds <- findSlaveNodes
     case nodeIds of
@@ -244,19 +251,37 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
                       --liftIO $ getLine
                       loop (n+1) jobDesc'
 
-  runComputation :: RpcConfig -> Int -> RpcState a -> JobDesc (LoggingT IO) a b -> LoggingT IO (a, b)
+  runComputation :: forall a b. (S.Serialize a) =>
+    RpcConfig -> Int -> RpcState a -> JobDesc (StateT Int (LoggingT IO)) a b -> LoggingT IO (a, b)
   runComputation (MkRpcConfig (MkConfig {..}) (MkMasterConfig logger) _)  n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
-    (e, count) <- runStateT (expGen seed) 0
-    infos <- execStateT (analyseLocal e) M.empty
+    ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
+    infos <- execStateT (Ma.analyseLocal e) M.empty
     (infos', e') <- if shouldOptimize
-                      then logger $ optimize count infos e
+                      then logger $ Ma.optimize count infos e
                       else return (infos, e)
     rpc' <- liftIO $ setSeed rpc seed
     (r, _) <- evalStateT (runSimpleLocal infos' e') (rpc', V.empty)
     return r
 
+{-
+runSimpleLocalRec :: forall a b m s.
+  (S.Serialize a, S.Serialize b, RemoteClass s a, MonadIO m, MonadLoggerIO m) =>
+  Config -> s a -> JobDesc (StateT Int m) MExp a b -> m (a, b)
+runSimpleLocalRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
+  ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
+  infos <- execStateT (Ma.analyseLocal e) M.empty
+  (infos', e') <- if shouldOptimize
+                    then runStdoutLoggingT $ Ma.optimize count infos e
+                    else return (infos, e)
+  s' <- liftIO $ setSeed s seed
+  ((a, b), _) <- evalStateT (runSimpleLocal infos' e') (s', V.empty)
+  a' <- liftIO $ reportingAction a b
+  case recPredicate a' of
+    True -> return (a', b)
+    False -> runSimpleLocalRec config s' (jobDesc {seed = a'})
 
+    -}
 
 startOneClientRpc :: SlaveInfo -> (Int -> Closure (Process ())) -> Process ()
 startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
@@ -304,10 +329,10 @@ runRpc :: forall a b. (S.Serialize a, S.Serialize b, RemoteClass RpcState a) =>
   RemoteTable
   -> RpcConfig
   -> [String]
-  -> JobDesc (LoggingT IO) a b
+  -> JobDesc (StateT Int (LoggingT IO)) a b
   -> (Int -> Closure (Process()))
   -> (a -> b -> IO ())
-  -> IO()
+  -> IO ()
 runRpc rtable rpcConfig args jobDesc slaveClosure k = do
   case args of
     ["master", host, port] -> do

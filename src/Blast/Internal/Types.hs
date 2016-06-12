@@ -124,9 +124,9 @@ data Location = M | S
 
 
 
-data JobDesc m e a b = MkJobDesc {
+data JobDesc m a b = MkJobDesc {
   seed :: a
-  , expGen :: a -> ProgramT (Syntax m) m (e 'Local (a, b)) --StateT Int m (LocalExp (a, b))
+  , expGen :: forall e. (Builder m e) => a -> ProgramT (Syntax m) m (e 'Local (a, b)) --StateT Int m (LocalExp (a, b))
   , reportingAction :: a -> b -> IO a
   , recPredicate :: a -> Bool
   }
@@ -139,4 +139,18 @@ data Config = MkConfig
     shouldOptimize :: Bool
     , slaveAvailability :: Float
   }
+
+
+instance Chunkable [a] where
+  chunk nbBuckets l =
+    Many $ Vc.reverse $ Vc.fromList $ go [] nbBuckets l
+    where
+    go acc 1 ls = ls:acc
+    go acc n ls = go (L.take nbPerBucket ls : acc) (n-1) (L.drop nbPerBucket ls)
+    len = L.length l
+    nbPerBucket = len `div` nbBuckets
+
+
+instance UnChunkable [a] where
+  unChunk l = L.concat l
 
