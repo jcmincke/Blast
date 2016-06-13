@@ -43,8 +43,8 @@ import            Blast.Distributed.Slave
 
 
 runRec :: forall a b m s.
-  (S.Serialize a, S.Serialize b, CommandClass s a, MonadIO m, MonadLoggerIO m) =>
-  Config -> s a -> JobDesc (StateT Int m) a b -> m (a, b)
+  (S.Serialize a, S.Serialize b, CommandClass s a, MonadLoggerIO m) =>
+  Config -> s a -> JobDesc a b -> m (a, b)
 runRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
   infos <- execStateT (Ma.analyseLocal e) M.empty
@@ -140,7 +140,7 @@ instance (S.Serialize a) => CommandClass Controller a where
 
 
 createController :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>
-      Config -> Int -> JobDesc (StateT Int m) a b
+      Config -> Int -> JobDesc a b
       -> m (Controller a)
 createController cf@(MkConfig {..}) nbSlaves (MkJobDesc {..}) = do
   m <- liftIO $ foldM proc M.empty [0..nbSlaves-1]

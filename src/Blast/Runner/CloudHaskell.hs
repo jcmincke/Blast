@@ -99,7 +99,7 @@ instance Binary SlaveControl
 
 
 slaveProcess :: forall a b . (S.Serialize a, Typeable a, Typeable b) =>
-                IO RpcConfig -> JobDesc (StateT Int (LoggingT IO)) a b -> Int -> Process ()
+                IO RpcConfig -> JobDesc a b -> Int -> Process ()
 slaveProcess configurator (MkJobDesc {..}) slaveIdx = do
   (MkRpcConfig config _ (MkSlaveConfig {..})) <- liftIO configurator
   liftIO $ putStrLn $ "starting slave process: " ++ show slaveIdx
@@ -210,8 +210,14 @@ instance (S.Serialize a) => CommandClass RpcState a where
 
 
 
-startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, CommandClass RpcState a) => RpcConfig -> JobDesc (StateT Int (LoggingT IO)) a b ->
-   (Int -> Closure (Process())) -> (a -> b -> IO()) -> Backend -> [NodeId] -> Process ()
+startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, CommandClass RpcState a) =>
+  RpcConfig
+  -> JobDesc a b
+  -> (Int -> Closure (Process()))
+  -> (a -> b -> IO())
+  -> Backend
+  -> [NodeId]
+  -> Process ()
 startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc slaveClosure k backend _ = do
   loop 0 theJobDesc
   where
@@ -223,7 +229,7 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
     selfNode <- getSelfNode
     nodeIds <- liftIO $ findPeers backend 1000000
     return $ nodeIds L.\\ [selfNode]
-  loop :: Int -> JobDesc (StateT Int (LoggingT IO)) a b -> Process ()
+  loop :: Int -> JobDesc a b -> Process ()
   loop n (jobDesc@MkJobDesc {..}) = do
     nodeIds <- findSlaveNodes
     case nodeIds of
@@ -248,7 +254,7 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
                       loop (n+1) jobDesc'
 
   runComputation :: (S.Serialize a) =>
-    RpcConfig -> Int -> RpcState a -> JobDesc (StateT Int (LoggingT IO)) a b -> LoggingT IO (a, b)
+    RpcConfig -> Int -> RpcState a -> JobDesc a b -> LoggingT IO (a, b)
   runComputation (MkRpcConfig (MkConfig {..}) _ _)  n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
     ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
@@ -307,7 +313,7 @@ runRec :: forall a b. (S.Serialize a, S.Serialize b) =>
   RemoteTable
   -> RpcConfig
   -> [String]
-  -> JobDesc (StateT Int (LoggingT IO)) a b
+  -> JobDesc a b
   -> (Int -> Closure (Process()))
   -> (a -> b -> IO ())
   -> IO ()

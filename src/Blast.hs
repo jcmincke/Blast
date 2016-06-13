@@ -5,5 +5,5 @@ module Blast
 )
 where
 
-import Blast.Types
+import Blast.Types hiding (Syntax)
 import Blast.Syntax

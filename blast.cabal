@@ -16,7 +16,6 @@ library
   hs-source-dirs:      src
   exposed-modules:
     Blast
-    Blast.Types
     Blast.Syntax
     Blast.Common.Analyser
     Blast.Slave.Analyser
@@ -30,6 +29,7 @@ library
     Blast.Distributed.Slave
     Blast.Distributed.Master
   other-modules:
+    Blast.Types
   build-depends:       base >= 4.7 && < 5
     , async
     , binary
@@ -65,6 +65,7 @@ executable blast-exe
   build-depends:       base
     , containers
     , monad-logger
+    , operational
     , transformers
     , vault
     , blast
@@ -83,6 +84,7 @@ executable ch-blast
     , distributed-process-extras
     , distributed-process-simplelocalnet
     , monad-logger
+    , operational
     , transformers
     , vault
     , blast

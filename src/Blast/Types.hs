@@ -18,12 +18,14 @@ module Blast.Types
 where
 
 
-import            Control.Monad.IO.Class
 import            Control.Monad.Operational
 import qualified  Data.List as L
 import qualified  Data.Serialize as S
 import qualified  Data.Vector as Vc
 
+
+type Computation a b = forall e m. (Monad m, Builder m e) =>
+  a -> Control.Monad.Operational.ProgramT (Syntax m) m (e 'Local (a, b))
 
 
 data Kind = Remote | Local
@@ -97,12 +99,12 @@ lapply :: (Builder m e) =>
   e 'Local (a -> b) -> e 'Local a -> ProgramT (Syntax m) m (e 'Local b)
 lapply f a = singleton (StxLApply f a)
 
-build ::forall a m e. (Builder m e, MonadIO m) => ProgramT (Syntax m) m (e 'Local a) -> m (e 'Local a)
+build ::forall a m e. (Builder m e, Monad m) => ProgramT (Syntax m) m (e 'Local a) -> m (e 'Local a)
 build p = do
     pv <- viewT p
     eval pv
     where
-    eval :: (Builder m e, MonadIO m) => ProgramViewT (Syntax m) m (e 'Local a)  -> m (e 'Local a)
+    eval :: (Builder m e, Monad m) => ProgramViewT (Syntax m) m (e 'Local a)  -> m (e 'Local a)
     eval (StxRApply f a :>>=  is) = do
       e <- makeRApply f a
       build (is e)
@@ -124,9 +126,9 @@ data MasterSlave = M | S
 
 
 
-data JobDesc m a b = MkJobDesc {
+data JobDesc a b = MkJobDesc {
   seed :: a
-  , expGen :: forall e. (Builder m e) => a -> ProgramT (Syntax m) m (e 'Local (a, b))
+  , expGen :: forall e m. (Monad m, Builder m e) => a -> ProgramT (Syntax m) m (e 'Local (a, b))
   , reportingAction :: a -> b -> IO a
   , recPredicate :: a -> Bool
   }

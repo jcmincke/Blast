@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -9,6 +11,7 @@ import qualified  Data.List as L
 import qualified  Data.Map as M
 import            Data.Proxy
 import            Control.Monad.IO.Class
+import            Control.Monad.Operational
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 import            Data.Traversable
@@ -49,6 +52,8 @@ fib 2 = 3
 fib n = fib (n-1) + fib (n-2)
 
 
+
+--expGenerator :: Computation Int Int
 expGenerator (a::Int) = do
       r1 <- rconst [ 2| _ <- [1..10::Int]]
       r2 <- rmap (fun fib) r1
@@ -59,10 +64,12 @@ expGenerator (a::Int) = do
 --      a2 <- slocalfold r1 (foldFun (+)) zero
       one <- lconst (1::Int)
       ar2 <- collect r2
+      x <- return 8
       a3 <- lfold' (*) one ar2
-      a' <- lconst (a+1)
+      a' <- lconst (a+1+x)
       r <- ((,) <$$> a' <**> a2)
-      --  liftIO $ print "hello"
+      --liftIO $ print "hello"
+
       return r
 
 
@@ -101,8 +108,7 @@ reporting a b = do
   putStrLn "End Reporting"
   return a
 
---jobDesc :: (MonadIO m) => JobDesc m Int Int
-jobDesc = MkJobDesc 0 expGenerator3 reporting (\x -> True)
+jobDesc = MkJobDesc 0 expGenerator reporting (\x -> True)
 
 
 rloc = do
@@ -139,4 +145,5 @@ main = do
     print b
     print "=========="
 
+--main = return ()
 

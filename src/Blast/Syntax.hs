@@ -17,7 +17,6 @@ where
 
 import Debug.Trace
 import            Control.Monad hiding (join)
-import            Control.Monad.IO.Class
 import            Control.Monad.Operational
 import            Data.Foldable
 import            Data.Hashable
@@ -64,13 +63,12 @@ foldClosureIO :: (S.Serialize c, Show c, ChunkableFreeVar c) => e 'Local c -> (c
 foldClosureIO ce f = FoldClosure ce f
 
 
-rmap :: (Builder m e, Traversable t, MonadIO m) =>
+rmap :: (Monad m, Builder m e, Traversable t) =>
         Fun e a b -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Remote (t b))
 rmap fm e  = do
   cs <- mkRemoteClosure fm
   rapply cs e
   where
-  mkRemoteClosure :: (Builder m e, Traversable t, MonadIO m) => Fun e a b -> ProgramT (Syntax m) m (ExpClosure e (t a) (t b))
   mkRemoteClosure (Pure f) = do
     ue <- lconst ()
     return $ ExpClosure ue (\() a -> mapM f a)
@@ -145,7 +143,7 @@ count e = do
   f <- lconst (\b _ -> b+1)
   lfold f zero e
 
-rfold ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, MonadIO m)
+rfold ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, Monad m)
           => FoldFun e a r -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Remote (t r))
 rfold fp zero e = do
   cs <- mkRemoteClosure fp
@@ -163,7 +161,7 @@ rfold fp zero e = do
                 return $ pure r)
 
 
-rfold' ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, MonadIO m
+rfold' ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, Monad m
             , S.Serialize (t r), UnChunkable (t r))
           => FoldFun e a r -> (t r -> r) -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Local r)
 rfold' f aggregator zero a = do

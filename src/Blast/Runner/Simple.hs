@@ -43,7 +43,7 @@ instance Builder Identity Exp where
     return $ LApply f a
 
 
-runRec :: forall a b m.(Monad m, Builder m Exp, MonadLoggerIO m) => JobDesc m a b -> m (a, b)
+runRec :: forall a b m.(Builder m Exp, MonadLoggerIO m) => JobDesc a b -> m (a, b)
 runRec (jobDesc@MkJobDesc {..}) = do
   (e::Exp 'Local (a,b)) <- build (expGen seed)
   (a,b) <- liftIO $ runLocal e
