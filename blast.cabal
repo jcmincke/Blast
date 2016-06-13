@@ -23,23 +23,13 @@ library
     Blast.Master.Analyser
     Blast.Master.Optimizer
     Blast.Slave.Optimizer
+    Blast.Runner.Local
     Blast.Runner.Simple
+    Blast.Runner.CloudHaskell
     Blast.Distributed.Types
     Blast.Distributed.Slave
     Blast.Distributed.Master
-    Blast.Distributed.Rpc.Local
-    Blast.Distributed.Rpc.CloudHaskell
---    Blast.Optimizer
---    Blast.Analyser
---    Blast.Runner.Simple
---    Blast.Distributed.Master
---    Blast.Distributed.Slave
---    Blast.Distributed.Types
---    Blast.Distributed.Rpc.Local
---    Blast.Distributed.Rpc.CloudHaskell
   other-modules:
-    Blast.Internal.Types
-    Blast.Internal.Types2
   build-depends:       base >= 4.7 && < 5
     , async
     , binary

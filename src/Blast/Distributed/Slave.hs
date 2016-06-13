@@ -10,21 +10,23 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Blast.Distributed.Slave
-
+(
+  LocalSlave (..)
+  , runCommand
+)
 where
 
 import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
-import            Control.Monad.Operational
 
 import qualified  Data.Map as M
 import qualified  Data.Serialize as S
 import qualified  Data.Vault.Strict as V
 
 
-import Blast.Internal.Types
+import Blast.Types
 import Blast.Distributed.Types
 import Blast.Common.Analyser
 import Blast.Slave.Analyser
@@ -41,7 +43,6 @@ data LocalSlave m a b = MkLocalSlave {
   , config :: Config
   }
 
-type Info = GenericInfo NodeTypeInfo
 
 runCommand :: forall a b m. (S.Serialize a, MonadLoggerIO m) => LocalSlave m a b -> LocalSlaveRequest -> m (LocalSlaveResponse, LocalSlave m a b)
 runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do

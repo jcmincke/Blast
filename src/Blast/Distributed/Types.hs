@@ -21,16 +21,15 @@ import qualified  Data.Serialize as S
 
 import            GHC.Generics (Generic)
 
-import            Blast.Internal.Types
 import            Blast.Common.Analyser
 
 
 type RemoteClosureIndex = Int
 
-class (S.Serialize x) => RemoteClass s x where
+class (S.Serialize x) => CommandClass s x where
   getNbSlaves :: s x -> Int
   status ::  s x -> Int -> IO Bool
-  execute :: s x -> Int -> RemoteClosureIndex -> IO RemoteClosureResult
+  exec :: s x -> Int -> RemoteClosureIndex -> IO RemoteClosureResult
   cache :: s x -> Int -> Int -> BS.ByteString -> IO Bool
   uncache :: s x -> Int -> Int -> IO Bool
   fetch :: (S.Serialize a) => s x -> Int -> Int -> IO (Either String a)

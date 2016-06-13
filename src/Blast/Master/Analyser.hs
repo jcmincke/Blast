@@ -11,19 +11,16 @@
 module Blast.Master.Analyser
 where
 
-import Debug.Trace
+--import Debug.Trace
 import            Control.Bool (unlessM)
-import            Control.Lens (set, view)
 import            Control.Monad.Logger
 import            Control.Monad.IO.Class
-import            Control.Monad.Trans.Either
 import            Control.Monad.Trans.State
 import qualified  Data.ByteString as BS
 import qualified  Data.Map as M
 import qualified  Data.Serialize as S
 import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
-import            GHC.Generics (Generic)
 
 import            Blast.Types
 import            Blast.Common.Analyser
@@ -81,31 +78,59 @@ getLocalIndex (MLConst i _ _) = i
 getLocalIndex (MCollect i _ _) = i
 getLocalIndex (MLApply i _ _ _) = i
 
+
+
+visit :: Int -> InfoMap -> InfoMap
+visit n m =
+  case M.lookup n m of
+  Just (GenericInfo _ _) -> error ("Node " ++ show n ++ " has already been visited")
+  Nothing -> M.insert n (GenericInfo 0 ()) m
+
+
+visitRemoteM :: forall a m. (MonadLoggerIO m) =>
+          MExp 'Remote a -> StateT InfoMap m ()
+visitRemoteM e = do
+  let n = getRemoteIndex e
+  $(logInfo) $ T.pack  ("Visiting node: " ++ show n)
+  m <- get
+  put $ visit n m
+
+visitLocalM :: forall a m. (MonadLoggerIO m) =>
+          MExp 'Local a -> StateT InfoMap m ()
+visitLocalM e = do
+  let n = getLocalIndex e
+  $(logInfo) $ T.pack  ("Visiting node: " ++ show n)
+  m <- get
+  put $ visit n m
+
+
 analyseRemote :: (MonadLoggerIO m) => MExp 'Remote a -> StateT InfoMap m ()
-analyseRemote (MRApply n cs@(ExpClosure ce _) a) =
+analyseRemote e@(MRApply n (ExpClosure ce _) a) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
     increaseRefM (getRemoteIndex a)
     analyseLocal ce
     increaseRefM (getLocalIndex ce)
-    $(logInfo) $ T.pack ("create closure for RApply node " ++ show n)
+    visitRemoteM e
 
 
 
-analyseRemote (MRConst _ _ _) = return ()
+analyseRemote e@(MRConst n _ _) = unlessM (wasVisitedM n) $ visitRemoteM e
 
 
 analyseLocal :: (MonadLoggerIO m) => MExp 'Local a -> StateT InfoMap m ()
 
-analyseLocal (MLConst n _ _) = return ()
+analyseLocal e@(MLConst n _ _) = unlessM (wasVisitedM n) $ visitLocalM e
 
-analyseLocal (MCollect n _ a) =
+analyseLocal e@(MCollect n _ a) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
     increaseRefM (getRemoteIndex a)
+    visitLocalM e
 
-analyseLocal (MLApply n _ f a) =
+analyseLocal e@(MLApply n _ f a) =
   unlessM (wasVisitedM n) $ do
     analyseLocal f
     analyseLocal a
+    visitLocalM e
 

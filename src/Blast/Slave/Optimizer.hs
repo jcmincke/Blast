@@ -11,13 +11,11 @@ module Blast.Slave.Optimizer
 where
 
 --import Debug.Trace
-import qualified  Data.Vault.Strict as V
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 import qualified  Data.Map as M
 import qualified  Data.Text as T
-import            Control.Monad.Operational
 
 import            Blast.Common.Analyser
 import            Blast.Slave.Analyser

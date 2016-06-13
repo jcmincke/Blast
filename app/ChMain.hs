@@ -7,6 +7,7 @@ module Main where
 import Debug.Trace
 import qualified  Data.List as L
 import qualified  Data.Map as M
+import            Data.Proxy
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
@@ -20,11 +21,10 @@ import            Control.Distributed.Process.Closure (mkClosure, remotable)
 import            System.Environment (getArgs)
 
 import            Blast
---import            Blast.Distributed.Rpc.CloudHaskell
 import qualified  Blast.Runner.Simple as S
-import qualified  Blast.Distributed.Rpc.Local as Loc
-import Blast.Distributed.Rpc.CloudHaskell
---import Blast.Distributed.Rpc.Local
+import            Blast.Runner.Local as Loc
+import            Blast.Runner.CloudHaskell as CH
+
 
 {-
 expGenerator a = do
@@ -62,6 +62,7 @@ expGenerator (a::Int) = do
       a3 <- lfold' (*) one ar2
       a' <- lconst (a+1)
       r <- ((,) <$$> a' <**> a2)
+      --  liftIO $ print "hello"
       return r
 
 
@@ -81,7 +82,7 @@ expGenerator2 (a::Int) = do
       r1 <- rconst [KeyedVal i (i*2) | i <- [1..10::Int]]
       r2 <- rconst [KeyedVal i (i*3) | i <- [1..10::Int]]
 
-      j1 <- rKeyedJoin r1 r2
+      j1 <- rKeyedJoin (Proxy::Proxy []) r1 r2
       a1 <- collect j1
 
   --    j2 <- rKeyedJoin r1 r2
@@ -101,13 +102,13 @@ reporting a b = do
   return a
 
 --jobDesc :: (MonadIO m) => JobDesc m Int Int
-jobDesc = MkJobDesc 0 expGenerator reporting (\x -> True)
+jobDesc = MkJobDesc 0 expGenerator3 reporting (\x -> True)
 
 
 rloc = do
   let cf = MkConfig True 1.0
-  s <- runStdoutLoggingT $ Loc.createSimpleRemote cf 4 jobDesc
-  (a,b) <- runStdoutLoggingT $ Loc.runSimpleLocalRec cf s jobDesc
+  s <- runStdoutLoggingT $ Loc.createController cf 1 jobDesc
+  (a,b) <- runStdoutLoggingT $ Loc.runRec cf s jobDesc
   print a
   print b
 
@@ -120,7 +121,7 @@ rpcConfigAction = return $
     (MkSlaveConfig runStdoutLoggingT)
 
 
-slaveClosure = slaveProcess rpcConfigAction jobDesc
+slaveClosure = CH.slaveProcess rpcConfigAction jobDesc
 
 remotable ['slaveClosure]
 
@@ -131,7 +132,7 @@ rtable = __remoteTable initRemoteTable
 main = do
   args <- getArgs
   rpcConfig <- rpcConfigAction
-  runRpc rtable rpcConfig args jobDesc $(mkClosure 'slaveClosure) k
+  CH.runRec rtable rpcConfig args jobDesc $(mkClosure 'slaveClosure) k
   where
   k a b = do
     print a

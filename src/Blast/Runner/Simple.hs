@@ -19,7 +19,6 @@ where
 import            Data.Functor.Identity
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
-import            Control.Monad.Trans.State
 
 import            Blast.Types
 

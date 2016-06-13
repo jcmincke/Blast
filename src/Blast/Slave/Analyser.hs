@@ -12,22 +12,17 @@
 module Blast.Slave.Analyser
 where
 
-import Debug.Trace
+--import Debug.Trace
 import            Control.Bool (unlessM)
-import            Control.DeepSeq
-import            Control.Lens (set, view)
 import            Control.Monad.Logger
 import            Control.Monad.IO.Class
-import            Control.Monad.Operational
 import            Control.Monad.Trans.Either
 import            Control.Monad.Trans.State
-import            Data.Binary (Binary)
 import qualified  Data.ByteString as BS
 import qualified  Data.Map as M
 import qualified  Data.Serialize as S
 import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
-import            GHC.Generics (Generic)
 
 import            Blast.Types
 import            Blast.Common.Analyser
@@ -123,7 +118,7 @@ getRemoteClosure :: Int -> InfoMap -> RemoteClosureImpl
 getRemoteClosure n m =
   case M.lookup n m of
     Just (GenericInfo _ (NtRMap (MkRMapInfo cs _ _)))   -> cs
-    Nothing -> error ("Closure does not exist for node: " ++ show n)
+    _ -> error ("Closure does not exist for node: " ++ show n)
 
 
 
@@ -181,9 +176,6 @@ visitRApplyExp n key cs m =
   case M.lookup n m of
   Just (GenericInfo _ _) -> error ("RApply Node " ++ show n ++ " has already been visited")
   Nothing -> M.insert n (GenericInfo 0 (NtRMap (MkRMapInfo cs (makeUnCacher key) Nothing))) m
-  where
-  makeUnCacher :: V.Key a -> V.Vault -> V.Vault
-  makeUnCacher k vault = V.delete k vault
 
 
 visitRApplyExpM ::  forall a m. (MonadLoggerIO m) =>
@@ -204,7 +196,7 @@ visitLocalExp n m =
 
 
 
-visitLocalExpM :: forall a m. (MonadLoggerIO m) => Int -> StateT InfoMap m ()
+visitLocalExpM :: (MonadLoggerIO m) => Int -> StateT InfoMap m ()
 visitLocalExpM n = do
   $(logInfo) $ T.pack  ("Visiting local exp node: " ++ show n)
   m <- get
@@ -239,14 +231,14 @@ addRemoteExpCacheReader n key m =
   case M.lookup n m of
   Just (GenericInfo _ (NtRMap (MkRMapInfo _ _ (Just _)))) -> m
   Just (GenericInfo c (NtRMap (MkRMapInfo cs uncacher Nothing))) ->
-    M.insert n (GenericInfo c (NtRMap (MkRMapInfo cs uncacher (Just $ makeCacheReader key)))) m
+    M.insert n (GenericInfo c (NtRMap (MkRMapInfo cs uncacher (Just cacheReader)))) m
   Just (GenericInfo _ (NtRConst (MkRConstInfo _ _ (Just _)))) -> m
   Just (GenericInfo c (NtRConst (MkRConstInfo cacher uncacher Nothing))) ->
-    trace ("oui") $ M.insert n (GenericInfo c (NtRConst (MkRConstInfo cacher uncacher (Just $ makeCacheReader key)))) m
+    M.insert n (GenericInfo c (NtRConst (MkRConstInfo cacher uncacher (Just cacheReader)))) m
   _ ->  error ("Node " ++ show n ++ " cannot add remote exp cache reader")
   where
-  makeCacheReader :: (S.Serialize a) => V.Key a -> V.Vault -> Maybe BS.ByteString
-  makeCacheReader key vault =
+  cacheReader :: V.Vault -> Maybe BS.ByteString
+  cacheReader vault =
     case V.lookup key vault of
       Nothing -> Nothing
       Just b -> Just $ S.encode b
@@ -320,37 +312,25 @@ analyseRemote (SRApply n keyb cs@(ExpClosure ce _) a) =
     $(logInfo) $ T.pack ("create closure for RApply node " ++ show n)
     let keya = getRemoteVaultKey a
     rcs <- mkRemoteClosure keya keyb cs
-    visitRApplyM n keyb rcs
+    visitRApplyM rcs
   where
-  visitRApplyM ::  forall a m. (MonadLoggerIO m) =>
-                Int -> V.Key a  -> RemoteClosureImpl -> StateT InfoMap m ()
-  visitRApplyM n key cs = do
+  visitRApplyM cs' = do
     $(logInfo) $ T.pack  ("Visiting RMap node: " ++ show n)
     m <- get
-    put $ visitRApply n key cs m
-
-  visitRApply :: Int -> V.Key a -> RemoteClosureImpl -> InfoMap -> InfoMap
-  visitRApply n key cs m =
+    put $ visitRApply cs' m
+  visitRApply cs' m =
     case M.lookup n m of
     Just (GenericInfo _ _) -> error ("RMap Node " ++ show n ++ " has already been visited")
-    Nothing -> M.insert n (GenericInfo 0 (NtRMap (MkRMapInfo cs (makeUnCacher key) Nothing))) m
-    where
-
-    makeUnCacher :: V.Key a -> V.Vault -> V.Vault
-    makeUnCacher k vault = V.delete k vault
+    Nothing -> M.insert n (GenericInfo 0 (NtRMap (MkRMapInfo cs' (makeUnCacher keyb) Nothing))) m
 
 analyseRemote (SRConst n key _) =
-  unlessM (wasVisitedM n) $ visitRConstExpM n key
+  unlessM (wasVisitedM n) $ visitRConstExpM
   where
-  visitRConstExpM ::  forall a m. (MonadLoggerIO m, S.Serialize a) =>
-                Int -> V.Key a  -> StateT InfoMap m ()
-  visitRConstExpM n key = do
+  visitRConstExpM = do
     $(logInfo) $ T.pack  ("Visiting RConst node: " ++ show n)
     m <- get
-    put $ visitRConst n key m
-
-  visitRConst :: (S.Serialize a) => Int -> V.Key a -> InfoMap -> InfoMap
-  visitRConst n key  m =
+    put $ visitRConst m
+  visitRConst m =
     case M.lookup n m of
     Just (GenericInfo _ _) -> error ("RConst Node " ++ show n ++ " has already been visited")
     Nothing -> M.insert n (GenericInfo 0 (NtRConst (MkRConstInfo (makeCacher key) (makeUnCacher key) Nothing))) m
@@ -360,9 +340,6 @@ analyseRemote (SRConst n key _) =
       case S.decode bs of
       Left e -> error $ ("Cannot deserialize value: " ++ e)
       Right a -> V.insert k a vault
-
-    makeUnCacher :: V.Key a -> V.Vault -> V.Vault
-    makeUnCacher k vault = V.delete k vault
 
 
 

@@ -16,18 +16,15 @@ module Blast.Syntax
 where
 
 import Debug.Trace
-import            Control.Applicative hiding ((<**>))
 import            Control.Monad hiding (join)
 import            Control.Monad.IO.Class
 import            Control.Monad.Operational
-import            Control.Monad.Trans.State
 import            Data.Foldable
 import            Data.Hashable
 import qualified  Data.HashMap.Lazy as M
 import qualified  Data.List as L
 import            Data.Maybe (catMaybes)
-import            Data.Traversable
-import            Data.Vault.Strict as V
+import            Data.Proxy
 import qualified  Data.Vector as Vc
 import qualified  Data.Serialize as S
 
@@ -79,8 +76,8 @@ rmap fm e  = do
     return $ ExpClosure ue (\() a -> mapM f a)
   mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> mapM (f c) a)
 
-rflatmap :: (Builder m e, Traversable t, MonadIO m, Monoid (t b)) =>
-        Fun e a (t b) -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Remote (t b))
+rflatmap :: (Monad m, Foldable t1, Monoid (IO b), Builder m e) =>
+  Fun e t b  -> e 'Remote (t1 t) -> ProgramT (Syntax m) m (e 'Remote b)
 rflatmap fp e = do
   cs <- mkRemoteClosure fp
   rapply cs e
@@ -90,9 +87,9 @@ rflatmap fp e = do
     return $ ExpClosure ue (\() a -> foldMap f a)
   mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> foldMap (f c) a)
 
-rfilter ::  (Monad m, Applicative f, Foldable t, Monoid (f a), Builder m e)
-            => Fun e a Bool
-            -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Remote (f a))
+rfilter :: (Monad m, Applicative f, Foldable t, Monoid (f a),
+            Monoid (IO (f a)), Builder m e) =>
+  Fun e a Bool -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Remote (f a))
 rfilter p e = do
   cs <- mkRemoteClosure p
   rapply cs e
@@ -132,7 +129,11 @@ lfold f zero a = do
   lapply f' a
 
 
-
+lfold' :: (Monad m, Foldable t, Builder m e) =>
+  (b -> a -> b)
+  -> e 'Local b
+  -> e 'Local (t a)
+  -> ProgramT (Syntax m) m (e 'Local b)
 lfold' f zero a = do
   f' <- lconst f
   lfold f' zero a
@@ -162,10 +163,6 @@ rfold fp zero e = do
                 return $ pure r)
 
 
---rfold' :: (MonadIO m, Show a, Show r, S.Serialize (t a), Chunkable (t a), S.Serialize (t r), UnChunkable (t r), S.Serialize r
----           , Applicative t, Foldable t, NodeIndexer s
- --          , ChunkableFreeVar r) =>
-  --       FoldFun a r -> (t r -> r) -> LocalExp r -> RemoteExp (t a) -> StateT s m (LocalExp r)
 rfold' ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, MonadIO m
             , S.Serialize (t r), UnChunkable (t r))
           => FoldFun e a r -> (t r -> r) -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Local r)
@@ -183,7 +180,7 @@ instance Joinable a b where
 
 instance (Eq k, Show k,Show a, Show b) => Joinable (KeyedVal k a) (KeyedVal k b) where
   join (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = Just (KeyedVal k1 a, KeyedVal k2 b)
-  join (KeyedVal k1 a) (KeyedVal k2 b) = Nothing
+  join (KeyedVal _ _) (KeyedVal _ _) = Nothing
 
 
 
@@ -191,15 +188,13 @@ instance (Eq k, Show k,Show a, Show b) => Joinable (KeyedVal k a) (KeyedVal k b)
 fromList' :: (Applicative t, Foldable t, Monoid (t a)) => [a] -> t a
 fromList' l = foldMap pure l
 
-
---rjoin :: (Builder m e, MonadIO m, Chunkable (t a), UnChunkable (t b),
---          ChunkableFreeVar (t a),
---          Traversable t, Applicative t
---          , Joinable a b, Monoid (t (a, b))) =>
---         e 'Remote (t a) -> e 'Remote (t b) -> ProgramT (Syntax m) m (e 'Remote (t (a, b)))
+rjoin :: (Monad m, Applicative t, Foldable t, Foldable t1, Foldable t2,
+          Monoid (t (a, b)), S.Serialize (t1 a), Builder m e,
+          ChunkableFreeVar (t1 a), UnChunkable (t1 a), Joinable a b) =>
+   e 'Remote (t1 a) -> e 'Remote (t2 b) -> ProgramT (Syntax m) m (e 'Remote (t (a, b)))
 rjoin a b = do
   a' <- collect a
-  let cs = ExpClosure a' (\av bv -> return $ fromList' $ catMaybes [join a b | a <- toList av, b <- toList bv])
+  let cs = ExpClosure a' (\av bv -> return $ fromList' $ catMaybes [join x y | x <- toList av, y <- toList bv])
   rapply cs b
 
 data KeyedVal k v = KeyedVal k v
@@ -232,15 +227,26 @@ instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v)), Chunkable (t (Ke
 
 
 
-
-rKeyedJoin a b = do
+rKeyedJoin
+  :: (Eq k, Monad m, Show (t1 (KeyedVal k t3)),
+      Show (t2 (KeyedVal k t4)), Applicative t, Applicative t1,
+      Foldable t, Foldable t1, Foldable t2,
+      Monoid (t (KeyedVal k (t3, t4))), Monoid (t1 (KeyedVal k t3)),
+      UnChunkable (t1 (KeyedVal k t3)), Chunkable (t1 (KeyedVal k t3)),
+      Builder m e, S.Serialize (t1 (KeyedVal k t3))) =>
+     Proxy t
+     -> e 'Remote (t1 (KeyedVal k t3))
+     -> e 'Remote (t2 (KeyedVal k t4))
+     -> Control.Monad.Operational.ProgramT
+          (Syntax m) m (e 'Remote (t (KeyedVal k (t3, t4))))
+rKeyedJoin _ a b = do
   a' <- collect a
   ja <- OptiT <$$> a'
-  let cs = ExpClosure ja (\(OptiT av) bv -> trace (show av) $ trace (show bv) $ return $ fromList' $ catMaybes [doJoin a b | a <- toList av, b <- toList bv])
+  let cs = ExpClosure ja (\(OptiT av) bv -> trace (show av) $ trace (show bv) $ return $ fromList' $ catMaybes [doJoin x y | x <- toList av, y <- toList bv])
   rapply cs b
   where
-  doJoin (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = Just $ KeyedVal k1 (a, b)
-  doJoin (KeyedVal k1 a) (KeyedVal k2 b) = Nothing
+  doJoin (KeyedVal k1 a') (KeyedVal k2 b') | k1 == k2 = Just $ KeyedVal k1 (a', b')
+  doJoin (KeyedVal _ _) (KeyedVal _ _) = Nothing
 
 
 
@@ -252,16 +258,16 @@ data Range = Range Int Int
 
 
 instance Chunkable Range where
-  chunk nbBuckets (Range min max) =
-    Many $ Vc.fromList $ L.reverse $ go [] min nbBuckets
+  chunk nbBuckets (Range minV maxV) =
+    Many $ Vc.fromList $ L.reverse $ go [] minV nbBuckets
     where
-    delta = (max - min) `div` nbBuckets
-    go ranges current 1 = (Range current max):ranges
-    go ranges current n | current >= max = go (Range current current : ranges) current (n - 1)
+    delta = (maxV - minV) `div` nbBuckets
+    go ranges current 1 = (Range current maxV):ranges
+    go ranges current n | current >= maxV = go (Range current current : ranges) current (n - 1)
     go ranges current n =
       go (Range current end' : ranges) end' (n - 1)
       where
-      end' = if end > max then max else end
+      end' = if end > maxV then maxV else end
       end = current + delta
 
 
