@@ -60,16 +60,12 @@ expGenerator (a::Int) = do
       zero <- lconst (0::Int)
       c1 <- lconst (0 ::Int)
       a2 <- rfold' (foldClosure c1 (const (+))) sum zero r2
-      --a2 <- collect r2
---      a2 <- slocalfold r1 (foldFun (+)) zero
       one <- lconst (1::Int)
       ar2 <- collect r2
       x <- return 8
       a3 <- lfold' (*) one ar2
-      a' <- lconst (a+1+x)
+      a' <- lconst (a+1)
       r <- ((,) <$$> a' <**> a2)
-      --liftIO $ print "hello"
-
       return r
 
 
@@ -108,7 +104,7 @@ reporting a b = do
   putStrLn "End Reporting"
   return a
 
-jobDesc = MkJobDesc 0 expGenerator reporting (\x -> True)
+jobDesc = MkJobDesc 0 expGenerator reporting (\_ x _  -> True)
 
 
 rloc = do

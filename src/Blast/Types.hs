@@ -30,17 +30,8 @@ type Computation a b = forall e m. (Monad m, Builder m e) =>
 
 data Kind = Remote | Local
 
-data Partition a =
-  Singleton Int a
-  |Many (Vc.Vector a)
+type Partition a = Vc.Vector a
 
-instance Functor Partition where
-  fmap f (Singleton size a) = Singleton size $ f a
-  fmap f (Many as) = Many $ fmap f as
-
-partitionToVector :: Partition a -> Vc.Vector a
-partitionToVector (Singleton size a) = Vc.generate size (const a)
-partitionToVector (Many as) = as
 
 class Chunkable a where
   chunk :: Int -> a -> Partition a
@@ -50,7 +41,7 @@ class UnChunkable a where
 
 class ChunkableFreeVar a where
   chunk' :: Int -> a -> Partition a
-  chunk' n a = Singleton n a
+  chunk' n a = Vc.generate n (const a)
 
 
 data Fun e a b =
@@ -130,7 +121,7 @@ data JobDesc a b = MkJobDesc {
   seed :: a
   , expGen :: forall e m. (Monad m, Builder m e) => a -> ProgramT (Syntax m) m (e 'Local (a, b))
   , reportingAction :: a -> b -> IO a
-  , recPredicate :: a -> Bool
+  , recPredicate :: a -> a -> b -> Bool
   }
 
 
@@ -149,7 +140,7 @@ instance ChunkableFreeVar ()
 
 instance Chunkable [a] where
   chunk nbBuckets l =
-    Many $ Vc.reverse $ Vc.fromList $ go [] nbBuckets l
+    Vc.reverse $ Vc.fromList $ go [] nbBuckets l
     where
     go acc 1 ls = ls:acc
     go acc n ls = go (L.take nbPerBucket ls : acc) (n-1) (L.drop nbPerBucket ls)

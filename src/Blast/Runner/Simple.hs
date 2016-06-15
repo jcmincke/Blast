@@ -48,7 +48,7 @@ runRec (jobDesc@MkJobDesc {..}) = do
   (e::Exp 'Local (a,b)) <- build (expGen seed)
   (a,b) <- liftIO $ runLocal e
   a' <- liftIO $ reportingAction a b
-  case recPredicate a' of
+  case recPredicate a a' b of
     True -> do
     --      $(logInfo) "Finished"
       return (a', b)

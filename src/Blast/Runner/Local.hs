@@ -54,7 +54,7 @@ runRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   s' <- liftIO $ setSeed s seed
   ((a, b), _) <- evalStateT (runLocal e') (s', V.empty)
   a' <- liftIO $ reportingAction a b
-  case recPredicate a' of
+  case recPredicate seed a' b of
     True -> return (a', b)
     False -> runRec config s' (jobDesc {seed = a'})
 

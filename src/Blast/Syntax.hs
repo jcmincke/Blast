@@ -63,6 +63,18 @@ foldClosureIO :: (S.Serialize c, Show c, ChunkableFreeVar c) => e 'Local c -> (c
 foldClosureIO ce f = FoldClosure ce f
 
 
+
+rapply' :: (Monad m, Builder m e) =>
+        Fun e a b -> e 'Remote a -> ProgramT (Syntax m) m (e 'Remote b)
+rapply' fm e  = do
+  cs <- mkRemoteClosure fm
+  rapply cs e
+  where
+  mkRemoteClosure (Pure f) = do
+    ue <- lconst ()
+    return $ ExpClosure ue (\() a -> f a)
+  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> f c a)
+
 rmap :: (Monad m, Builder m e, Traversable t) =>
         Fun e a b -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Remote (t b))
 rmap fm e  = do
@@ -209,7 +221,7 @@ instance (S.Serialize (t (KeyedVal k v))) => S.Serialize (OptiT t k v)
 
 instance (Hashable k) => Chunkable [KeyedVal k v] where
   chunk nbBuckets l =
-    Many $ Vc.reverse $ Vc.generate nbBuckets (\i -> buckets M.! i)
+    Vc.reverse $ Vc.generate nbBuckets (\i -> buckets M.! i)
     where
     buckets = L.foldl proc M.empty l
     proc bucket' kv@(KeyedVal k _) = let
@@ -253,11 +265,13 @@ rKeyedJoin _ a b = do
 data Range = Range Int Int
   deriving (Eq, Show, Generic, S.Serialize)
 
+rangeToList :: Range -> [Int]
+rangeToList (Range a b) = [a .. (b-1)]
 
 
 instance Chunkable Range where
   chunk nbBuckets (Range minV maxV) =
-    Many $ Vc.fromList $ L.reverse $ go [] minV nbBuckets
+    Vc.fromList $ L.reverse $ go [] minV nbBuckets
     where
     delta = (maxV - minV) `div` nbBuckets
     go ranges current 1 = (Range current maxV):ranges

@@ -24,11 +24,13 @@ module Blast.Runner.CloudHaskell
 )
 where
 
-import            Control.Concurrent
+import            Control.Concurrent (threadDelay)
 import            Control.Concurrent.Async
+import            Control.Concurrent.STM.TChan
 import            Control.DeepSeq
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
+import            Control.Monad.STM
 import            Control.Monad.Trans.State
 
 import            Control.Distributed.Process hiding (newChan)
@@ -84,8 +86,8 @@ data RpcResponseControl =
 data SlaveInfo = MkSlaveInfo {
   _slaveIndex :: Int
   , _slaveNodeId :: NodeId
-  , _slaveRequestChannel :: Chan (Either RpcRequestControl LocalSlaveRequest)
-  , _slaveResponseChannel :: Chan (Either RpcResponseControl LocalSlaveResponse)
+  , _slaveRequestChannel :: TChan (Either RpcRequestControl LocalSlaveRequest)
+  , _slaveResponseChannel :: TChan (Either RpcResponseControl LocalSlaveResponse)
   }
 
 
@@ -140,9 +142,9 @@ rpcCall :: forall a. (S.Serialize a ) => RpcState a -> Int -> LocalSlaveRequest 
 rpcCall (MkRpcState {..}) slaveIdx request = do
     let (MkSlaveInfo {..}) = rpcSlaves M.! slaveIdx
     putStrLn "rpcCAll: running process "
-    writeChan _slaveRequestChannel (Right request)
+    atomically $ writeTChan _slaveRequestChannel (Right request)
 
-    respE <- readChan _slaveResponseChannel
+    respE <- atomically $ readTChan _slaveResponseChannel
     putStrLn "rpcCAll: got for resp from chan"
     case respE of
       Right resp -> return resp
@@ -202,8 +204,8 @@ instance (S.Serialize a) => CommandClass RpcState a where
   stop (MkRpcState {..}) = do
     let slaveInfos = M.elems rpcSlaves
     mapM_ (\(MkSlaveInfo {..}) -> do
-      writeChan _slaveRequestChannel (Left RpcRequestControlStop)
-      _ <- readChan _slaveResponseChannel
+      atomically $ writeTChan _slaveRequestChannel (Left RpcRequestControlStop)
+      _ <- atomically $ readTChan _slaveResponseChannel
       -- todo add error management
       return ()
       ) slaveInfos
@@ -222,8 +224,8 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
   loop 0 theJobDesc
   where
   mkSlaveInfo i nodeId = do
-    requestChan <- newChan
-    responseChannel <- newChan
+    requestChan <- newTChanIO
+    responseChannel <- newTChanIO
     return $ (i, MkSlaveInfo i nodeId requestChan responseChannel)
   findSlaveNodes = do
     selfNode <- getSelfNode
@@ -247,7 +249,7 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
         (a, b) <- liftIO $ do logger $ runComputation rpcConfig 0 rpcState jobDesc
         liftIO $ stop rpcState
         a' <- liftIO $ reportingAction a b
-        case recPredicate a of
+        case recPredicate seed a' b of
           True -> liftIO $ k a b
           False -> do let jobDesc' = jobDesc {seed = a'}
                       liftIO $ putStrLn "iteration finished"
@@ -281,7 +283,7 @@ startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
   where
   localProcess :: Int -> ProcessId -> Process ()
   localProcess nbError slavePid = do
-    requestE <- liftIO $ readChan _slaveRequestChannel
+    requestE <- liftIO $ atomically $ readTChan _slaveRequestChannel
     case requestE of
       Right request -> do
         liftIO $ putStrLn ("mkRpcProcess: before call " ++ show _slaveIndex )
@@ -289,22 +291,22 @@ startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
         liftIO $ putStrLn ("mkRpcProcess: after call " ++ show _slaveIndex )
         case respE of
           Right resp -> do
-            liftIO $ writeChan _slaveResponseChannel $ Right resp
+            liftIO $ atomically $ writeTChan _slaveResponseChannel $ Right resp
             localProcess 0 slavePid
           Left e | nbError < 10 -> do
             liftIO $ putStrLn ("error: "++show e)
             liftIO $ threadDelay 5000000
             -- todo deprecated, fix me
-            liftIO $ unGetChan _slaveRequestChannel requestE
+            liftIO $ atomically $ unGetTChan _slaveRequestChannel requestE
             newSlavePid <- spawn _slaveNodeId (slaveClosure _slaveIndex)
             localProcess (nbError+1) newSlavePid
           Left e  -> do
-            liftIO $ writeChan _slaveResponseChannel $ Left $ RpcResponseControlError $ show e
+            liftIO $ atomically $ writeTChan _slaveResponseChannel $ Left $ RpcResponseControlError $ show e
             localProcess nbError slavePid
       Left RpcRequestControlStop -> do
               liftIO $ putStrLn ("stopping slave in a controlled way:" ++ show slavePid)
               exit slavePid ()
-              liftIO $ writeChan _slaveResponseChannel $ Left $ RpcResponseControlStopped
+              liftIO $ atomically $ writeTChan _slaveResponseChannel $ Left $ RpcResponseControlStopped
               liftIO $ putStrLn "Terminating client process"
 
 

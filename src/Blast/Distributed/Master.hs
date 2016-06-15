@@ -67,7 +67,7 @@ runRemoteOneSlave slaveId oe@(MRApply n (ExpClosure ce _) e) = do
         Just (_, Nothing) -> error "local value not cached (BS) while executing remote on one slave"
         Just (_, Just p) -> do
           let ceId = getLocalIndex ce
-          let csBs = partitionToVector p Vc.! slaveId
+          let csBs = p Vc.! slaveId
           _ <- liftIO $ cache s slaveId ceId csBs
           runRemoteOneSlave slaveId oe
     RemCsResCacheMiss CachedArg -> do
@@ -77,15 +77,15 @@ runRemoteOneSlave slaveId oe@(MRApply n (ExpClosure ce _) e) = do
     ExecRes -> return ()
     ExecResError err -> error ( "remote call: " ++ err)
 
-runRemoteOneSlave slaveId (MRConst n _ a) = do
+runRemoteOneSlave slaveId (MRConst n key _) = do
   s <- getRemote
-  let nbSlaves = getNbSlaves s
-  -- todo chunk is applied for each slave , not efficient, to fix
-  let subRdd = partitionToVector (chunk nbSlaves a) Vc.! slaveId
-  let subRddBs = S.encode subRdd
-  _ <- liftIO $ cache s slaveId n subRddBs
-  return ()
-
+  vault <- getVault
+  case V.lookup key vault of
+    Just partition -> do
+      let bs = partition Vc.! slaveId
+      _ <- liftIO $ cache s slaveId n bs
+      return ()
+    Nothing ->  error "MRConst value not cached"
 
 
 fetchOneSlaveResults :: forall a s x m.
@@ -110,9 +110,10 @@ fetchResults e = do
   return $ unChunk r
 
 
-runRemote ::(S.Serialize a, UnChunkable a, CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault) m ()
-runRemote oe@(MRApply _ (ExpClosure ce _) _) = do
+runRemote ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault) m ()
+runRemote oe@(MRApply _ (ExpClosure ce _) e) = do
   s <- getRemote
+  runRemote e
   cp <- runLocal ce
   case cp of
     (_, Just _) -> return ()
@@ -129,13 +130,15 @@ runRemote oe@(MRApply _ (ExpClosure ce _) _) = do
   return ()
 
 
-
-runRemote e@(MRConst _ _ _) = do
+runRemote e@(MRConst _ key a) = do
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
-  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlave slaveId e) (s, vault)) slaveIds
+  let partition = fmap S.encode $ chunk nbSlaves a
+  let vault' = V.insert key partition vault
+  setVault vault'
+  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlave slaveId e) (s, vault')) slaveIds
   return ()
 
 
