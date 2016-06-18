@@ -136,11 +136,9 @@ data RpcState a = MkRpcState {
 rpcCall :: forall a. (S.Serialize a ) => RpcState a -> Int -> LocalSlaveRequest -> IO LocalSlaveResponse
 rpcCall (MkRpcState {..}) slaveIdx request = do
     let (MkSlaveInfo {..}) = rpcSlaves M.! slaveIdx
-    putStrLn "rpcCAll: running process "
     atomically $ writeTChan _slaveRequestChannel (Right request)
 
     respE <- atomically $ readTChan _slaveResponseChannel
-    putStrLn "rpcCAll: got for resp from chan"
     case respE of
       Right resp -> return resp
       Left (RpcResponseControlError err) -> return $ LsRespError err
@@ -191,9 +189,7 @@ instance (S.Serialize a) => CommandClass RpcState a where
     resetAll aRpc = do
       let nbSlaves = getNbSlaves aRpc
       let slaveIds = [0 .. nbSlaves - 1]
-      liftIO $ putStrLn "setSeed: before "
       _ <- mapConcurrently (\slaveId -> reset aRpc slaveId) slaveIds
-      liftIO $ putStrLn "setSeed: after "
       return ()
   -- todo to implement : shutting down slaves
   stop (MkRpcState {..}) = do
@@ -277,9 +273,7 @@ startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
     requestE <- liftIO $ atomically $ readTChan _slaveRequestChannel
     case requestE of
       Right request -> do
-        liftIO $ putStrLn ("mkRpcProcess: before call " ++ show _slaveIndex )
         (respE::Either ExitReason LocalSlaveResponse) <- safeCall slavePid request
-        liftIO $ putStrLn ("mkRpcProcess: after call " ++ show _slaveIndex )
         case respE of
           Right resp -> do
             liftIO $ atomically $ writeTChan _slaveResponseChannel $ Right resp
