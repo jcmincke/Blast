@@ -12,7 +12,7 @@
 module Blast.Slave.Analyser
 where
 
---import Debug.Trace
+import Debug.Trace
 import            Control.Bool (unlessM)
 import            Control.Monad.Logger
 import            Control.Monad.IO.Class
@@ -20,6 +20,7 @@ import            Control.Monad.Trans.Either
 import            Control.Monad.Trans.State
 import qualified  Data.ByteString as BS
 import qualified  Data.Map as M
+import qualified  Data.Set as S
 import qualified  Data.Serialize as S
 import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
@@ -50,23 +51,23 @@ instance (MonadIO m) => Builder (StateT Int m) SExp where
   makeRApply f a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    return $ SRApply i k f a
+    trace (show ("SRApply=", i)) $ return $ SRApply i k f a
   makeRConst a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    return $ SRConst i k a
+    trace (show ("SRConst=", i)) $ return $ SRConst i k a
   makeLConst a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    return $ SLConst i k a
+    trace (show ("SLConst=", i)) $ return $ SLConst i k a
   makeCollect a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    return $ SCollect i k a
+    trace (show ("SCollect=", i)) $ return $ SCollect i k a
   makeLApply f a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    return $ SLApply i k f a
+    trace (show ("SLApply=", i)) $ return $ SLApply i k f a
 
 
 
@@ -108,30 +109,17 @@ getVal cvt vault key =
   Just v -> right v
   Nothing -> left $ RemCsResCacheMiss cvt
 
-getLocalVal :: (Monad m) =>  CachedValType -> V.Vault -> V.Key a -> EitherT RemoteClosureResult m a
-getLocalVal cvt vault key  =
+getLocalVal :: (Monad m) =>  CachedValType -> V.Vault -> Int -> V.Key a -> EitherT RemoteClosureResult m a
+getLocalVal cvt vault n key  =
   case V.lookup key vault of
   Just v -> right v
-  Nothing -> left $ RemCsResCacheMiss cvt
+  Nothing -> trace (show ("ERROR, cache miss node ", n)) $ left $ RemCsResCacheMiss cvt
 
 getRemoteClosure :: Int -> InfoMap -> RemoteClosureImpl
 getRemoteClosure n m =
   case M.lookup n m of
     Just (GenericInfo _ (NtRMap (MkRMapInfo cs _ _)))   -> cs
     _ -> error ("Closure does not exist for node: " ++ show n)
-
-
-
-
-makeLocalCacheInfo :: (S.Serialize a) => V.Key a -> LExpInfo
-makeLocalCacheInfo key =
-  MkLExpInfo (makeCacher key) (makeUnCacher key)
-  where
-  makeCacher :: (S.Serialize a) => V.Key a -> BS.ByteString -> V.Vault -> V.Vault
-  makeCacher k bs vault =
-    case S.decode bs of
-    Left e -> error $ ("Cannot deserialize value: " ++ e)
-    Right a -> V.insert k a vault
 
 makeUnCacher :: V.Key a -> V.Vault -> V.Vault
 makeUnCacher k vault = V.delete k vault
@@ -142,20 +130,19 @@ makeIsCached k vault =
     Just _ -> True
     Nothing -> False
 
-
-
 mkRemoteClosure :: forall a b m . (MonadLoggerIO m) =>
   V.Key a -> V.Key b -> ExpClosure SExp a b -> StateT InfoMap m RemoteClosureImpl
 mkRemoteClosure keya keyb (ExpClosure e f) = do
   analyseLocal e
   addLocalExpCacheM e
   let keyc = getLocalVaultKey e
-  return $ wrapClosure keyc keya keyb f
+  let nc = getLocalIndex e
+  return $ wrapClosure (nc, keyc) keya keyb f
 
 
 wrapClosure :: forall a b c .
-            V.Key c -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
-wrapClosure keyc keya keyb f =
+            (Int, V.Key c) -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
+wrapClosure (nc, keyc) keya keyb f =
     proc
     where
     proc vault = do
@@ -163,36 +150,17 @@ wrapClosure keyc keya keyb f =
       return $ either (\l -> (l, vault)) id r'
       where
       r = do
-        c <- getLocalVal CachedFreeVar vault keyc
+        c <- getLocalVal CachedFreeVar vault nc keyc
         av <- getVal CachedArg vault keya
         brdd <- liftIO $ (f c) av
         let vault' = V.insert keyb brdd vault
         return (ExecRes, vault')
 
-
-
-visitRApplyExp :: Int -> V.Key a -> RemoteClosureImpl -> InfoMap -> InfoMap
-visitRApplyExp n key cs m =
-  case M.lookup n m of
-  Just (GenericInfo _ _) -> error ("RApply Node " ++ show n ++ " has already been visited")
-  Nothing -> M.insert n (GenericInfo 0 (NtRMap (MkRMapInfo cs (makeUnCacher key) Nothing))) m
-
-
-visitRApplyExpM ::  forall a m. (MonadLoggerIO m) =>
-              Int -> V.Key a  -> RemoteClosureImpl -> StateT InfoMap m ()
-visitRApplyExpM n key cs = do
-  $(logInfo) $ T.pack  ("Visiting RMap node: " ++ show n)
-  m <- get
-  put $ visitRApplyExp n key cs m
-
-
-
-
 visitLocalExp :: Int -> InfoMap -> InfoMap
 visitLocalExp n m =
   case M.lookup n m of
-  Just (GenericInfo _ _ ) -> error ("Node " ++ show n ++ " has already been visited")
-  Nothing -> M.insert n (GenericInfo 0 NtLExpNoCache) m
+  Just (GenericInfo _ _ ) -> m --error ("Node " ++ show n ++ " has already been visited")
+  Nothing -> M.insert n (GenericInfo S.empty NtLExpNoCache) m
 
 
 
@@ -207,7 +175,7 @@ addLocalExpCache :: (S.Serialize a) => Int -> V.Key a -> InfoMap -> InfoMap
 addLocalExpCache n key m =
   case M.lookup n m of
   Just (GenericInfo c NtLExpNoCache) -> M.insert n (GenericInfo c (NtLExp (MkLExpInfo (makeCacher key) (makeUnCacher key)))) m
-  Nothing -> M.insert n (GenericInfo 0 (NtLExp (MkLExpInfo (makeCacher key) (makeUnCacher key)))) m
+  Nothing -> M.insert n (GenericInfo S.empty (NtLExp (MkLExpInfo (makeCacher key) (makeUnCacher key)))) m
   Just (GenericInfo _ (NtLExp _)) -> m
   _ ->  error ("Node " ++ show n ++ " cannot add local exp cache")
   where
@@ -255,6 +223,7 @@ addRemoteExpCacheReaderM e = do
   put $ addRemoteExpCacheReader n key m
 
 
+{-
 
 mkRemoteClosureM :: forall a b m . (MonadLoggerIO m) =>
   V.Key a -> V.Key b -> ExpClosure SExp a b -> StateT InfoMap m RemoteClosureImpl
@@ -280,7 +249,7 @@ wrapClosureM keyc keya keyb f =
         brdd <- liftIO $ (f c) av
         let vault' = V.insert keyb brdd vault
         return (ExecRes, vault')
-
+-}
 
 getRemoteIndex :: SExp 'Remote a -> Int
 getRemoteIndex (SRApply i _ _ _) = i
@@ -302,13 +271,13 @@ getLocalVaultKey (SLApply _ k _ _) = k
 
 
 analyseRemote :: (MonadLoggerIO m) => SExp 'Remote a -> StateT InfoMap m ()
-analyseRemote (SRApply n keyb cs@(ExpClosure ce _) a) =
-  unlessM (wasVisitedM n) $ do
+analyseRemote (SRApply n keyb cs@(ExpClosure ce _) a) = do
+  --unlessM (wasVisitedM n) $ do
     analyseRemote a
-    increaseRefM (getRemoteIndex a)
+    referenceM n (getRemoteIndex a)
     analyseLocal ce
-    addLocalExpCacheM ce
-    increaseRefM (getLocalIndex ce)
+--    addLocalExpCacheM ce
+    referenceM n (getLocalIndex ce)
     $(logInfo) $ T.pack ("create closure for RApply node " ++ show n)
     let keya = getRemoteVaultKey a
     rcs <- mkRemoteClosure keya keyb cs
@@ -320,10 +289,10 @@ analyseRemote (SRApply n keyb cs@(ExpClosure ce _) a) =
     put $ visitRApply cs' m
   visitRApply cs' m =
     case M.lookup n m of
-    Just (GenericInfo _ _) -> error ("RMap Node " ++ show n ++ " has already been visited")
-    Nothing -> M.insert n (GenericInfo 0 (NtRMap (MkRMapInfo cs' (makeUnCacher keyb) Nothing))) m
+    Just (GenericInfo _ _) -> m --error ("RMap Node " ++ show n ++ " has already been visited")
+    Nothing -> M.insert n (GenericInfo S.empty (NtRMap (MkRMapInfo cs' (makeUnCacher keyb) Nothing))) m
 
-analyseRemote (SRConst n key _) =
+analyseRemote (SRConst n key _) = do
   unlessM (wasVisitedM n) $ visitRConstExpM
   where
   visitRConstExpM = do
@@ -333,7 +302,7 @@ analyseRemote (SRConst n key _) =
   visitRConst m =
     case M.lookup n m of
     Just (GenericInfo _ _) -> error ("RConst Node " ++ show n ++ " has already been visited")
-    Nothing -> M.insert n (GenericInfo 0 (NtRConst (MkRConstInfo (makeCacher key) (makeUnCacher key) Nothing))) m
+    Nothing -> M.insert n (GenericInfo S.empty (NtRConst (MkRConstInfo (makeCacher key) (makeUnCacher key) Nothing))) m
     where
     makeCacher :: (S.Serialize a) => V.Key a -> BS.ByteString -> V.Vault -> V.Vault
     makeCacher k bs vault =
@@ -345,18 +314,19 @@ analyseRemote (SRConst n key _) =
 
 analyseLocal :: (MonadLoggerIO m) => SExp 'Local a -> StateT InfoMap m ()
 
-analyseLocal(SLConst n _ _) =
-  unlessM (wasVisitedM n) $ visitLocalExpM n
+analyseLocal(SLConst n _ _) = do
+--  unlessM (wasVisitedM n) $ visitLocalExpM n
+  visitLocalExpM n
 
-analyseLocal (SCollect n _ e) =
-  unlessM (wasVisitedM n) $ do
+analyseLocal (SCollect n _ e) = do
+--  unlessM (wasVisitedM n) $ do
     analyseRemote e
     addRemoteExpCacheReaderM e
-    increaseRefM (getRemoteIndex e)
+    referenceM n (getRemoteIndex e)
     visitLocalExpM n
 
-analyseLocal (SLApply n _ f e) =
-  unlessM (wasVisitedM n) $ do
+analyseLocal (SLApply n _ f e) = do
+--  unlessM (wasVisitedM n) $ do
     analyseLocal f
     analyseLocal e
     visitLocalExpM n

@@ -80,6 +80,7 @@ executable ch-blast
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
     , containers
+    , deepseq
     , distributed-process
     , distributed-process-client-server
     , distributed-process-extras
@@ -99,6 +100,28 @@ executable kmeans
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
     , containers
+    , deepseq
+    , distributed-process
+    , distributed-process-client-server
+    , distributed-process-extras
+    , distributed-process-simplelocalnet
+    , monad-logger
+    , operational
+    , transformers
+    , vault
+    , vector
+    , blast
+  default-language:    Haskell2010
+
+
+
+executable kmeans2
+  hs-source-dirs:      app
+  main-is:             KMeans2.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N
+  build-depends:       base
+    , containers
+    , deepseq
     , distributed-process
     , distributed-process-client-server
     , distributed-process-extras

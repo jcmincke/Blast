@@ -15,6 +15,7 @@ import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 import            Data.Binary (Binary)
 import qualified  Data.Map as M
+import qualified  Data.Set as S
 import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
 import            GHC.Generics (Generic)
@@ -42,7 +43,7 @@ type RemoteClosureImpl = V.Vault -> IO (RemoteClosureResult, V.Vault)
 
 
 data GenericInfo i = GenericInfo {
-  _nbRef :: Int
+  _refs :: S.Set Int -- set of parents, that is, nodes that reference this node
   , _info :: i
   }
 
@@ -53,21 +54,22 @@ type GenericInfoMap i = M.Map Int (GenericInfo i)
 refCount :: Int -> GenericInfoMap i -> Int
 refCount n m =
   case M.lookup n m of
-    Just inf -> view nbRef inf
+    Just inf -> S.size $ view refs inf
     Nothing -> error ("Ref count not found for node: " ++ show n)
 
 
-increaseRefM :: forall i m. MonadLoggerIO m =>
-                Int -> StateT (GenericInfoMap i) m ()
-increaseRefM n = do
-  $(logInfo) $ T.pack ("Referencing node: " ++ show n)
+
+referenceM :: forall i m. MonadLoggerIO m =>
+                Int -> Int -> StateT (GenericInfoMap i) m ()
+referenceM parent child = do
+  $(logInfo) $ T.pack ("Parent node "++show parent ++ " references child node " ++ show child)
   m <- get
-  put (increaseRef m)
+  put (reference m)
   where
-  increaseRef m =
-    case M.lookup n m of
-    Just inf@(GenericInfo old _) -> M.insert n (set nbRef (old+1) inf) m
-    Nothing -> error $  ("Node " ++ show n ++ " is referenced before being visited")
+  reference m =
+    case M.lookup child m of
+    Just inf@(GenericInfo old _) -> M.insert child (set refs (S.insert parent old) inf) m
+    Nothing -> error $  ("Node " ++ show child ++ " is referenced before being visited")
 
 
 

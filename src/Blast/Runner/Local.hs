@@ -17,6 +17,7 @@ module Blast.Runner.Local
 )
 where
 
+import Debug.Trace
 import            Control.Concurrent
 import            Control.Concurrent.Async
 import            Control.DeepSeq
@@ -47,10 +48,12 @@ runRec :: forall a b m s.
   Config -> s a -> JobDesc a b -> m (a, b)
 runRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
+  liftIO $ print ("nb nodes (master) = ", count)
   infos <- execStateT (Ma.analyseLocal e) M.empty
-  e' <- if shouldOptimize
-          then runStdoutLoggingT $ fmap snd $ Ma.optimize count infos e
-          else return e
+  (infos2, e') <- if shouldOptimize
+                    then trace ("MASTER OPTIMIZED") $ runStdoutLoggingT $ Ma.optimize count e
+                    else return (infos, e)
+  liftIO $ print $ M.keys infos2
   s' <- liftIO $ setSeed s seed
   ((a, b), _) <- evalStateT (runLocal e') (s', V.empty)
   a' <- liftIO $ reportingAction a b
@@ -96,12 +99,28 @@ instance (S.Serialize a) => CommandClass Controller a where
       ExecRes -> return ExecRes
       ExecResError err -> return (ExecResError err)
   cache (MkController {..}) slaveId i bs = do
-    let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
+    let (MkRemoteChannels {..}) = trace (show ("caching for ", i)) $ slaveChannels M.! slaveId
+   -- let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
     let req = LsReqCache i bs
     let !req' = force req
     writeChan iocOutChan req'
-    (LsRespBool b) <- readChan iocInChan
-    return b
+    r <- readChan iocInChan
+    case r of
+      (LsRespBool b) -> return b
+      (LsRespError s) -> do
+        putStrLn $ "Erreur: " ++ s
+        return False
+      (LsRespVoid) -> do
+        putStrLn $ "LsRespVoid"
+        error "e"
+      (LsFetch _) -> do
+        putStrLn $ "LsFetch"
+        error "e"
+      (LocalSlaveExecuteResult x) -> do
+        putStrLn $ "LocalSlaveExecuteResult "++ show x
+        error "e"
+
+
   uncache (MkController {..}) slaveId i = do
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
     let req = LsReqUncache i

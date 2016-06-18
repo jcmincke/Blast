@@ -50,10 +50,12 @@ runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
     Left e -> error e
     Right a -> do
       ((e::SExp 'Local (a,b)), count) <- runStateT (expGen a) 0
+      liftIO $ print ("nb nodes (slave) = ", count)
       infos1 <- execStateT (analyseLocal e) M.empty
       (infos2, _) <- if (shouldOptimize config)
-                        then optimize count infos1 e
+                        then trace ("SLAVE OPTIMIZED") $ optimize count e
                         else return (infos1, e)
+      liftIO $ print (M.keys infos2)
       let ls' = ls {infos = infos2, vault = V.empty}
       return  (LsRespVoid, ls')
 runCommand ls LsReqStatus = return (LsRespBool (not $ M.null $ infos ls), ls)
@@ -69,10 +71,15 @@ runCommand ls (LsReqCache i bs) =
       Just (GenericInfo _ (NtRConst (MkRConstInfo cacherFun _ _))) -> do
         let vault' = cacherFun bs (vault ls)
         return (LsRespBool True, ls {vault = vault'})
-      Just (GenericInfo _ (NtLExp (MkLExpInfo cacherFun _))) -> do
+
+      Just (GenericInfo _ (NtLExp (MkLExpInfo cacherFun _ ))) -> do
+        liftIO $ print ("slave caching ", i)
         let vault' = cacherFun bs (vault ls)
         return (LsRespBool True, ls {vault = vault'})
-      _ -> return (LocalSlaveExecuteResult (ExecResError ("GenericInfo not found: "++show i)), ls)
+
+      Just (GenericInfo _ (NtRMap _)) -> return (LocalSlaveExecuteResult (ExecResError ("NtRMap GenericInfo not found: "++show i)), ls)
+      Just (GenericInfo _ (NtLExpNoCache)) -> return (LocalSlaveExecuteResult (ExecResError ("NtLExpNoCache GenericInfo not found: "++show i)), ls)
+      _ -> return (LocalSlaveExecuteResult (ExecResError ("Nothing : GenericInfo not found: "++show i)), ls)
 runCommand ls (LsReqUncache i) = do
     case M.lookup i (infos ls) of
       Just (GenericInfo _ (NtRMap (MkRMapInfo _ unCacherFun _))) -> do

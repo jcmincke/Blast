@@ -10,7 +10,7 @@ module Blast.Slave.Optimizer
 
 where
 
---import Debug.Trace
+import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
@@ -28,18 +28,20 @@ nextIndex = do
   put (index+1, a)
 
 
-optimize :: (MonadLoggerIO m) => Int -> InfoMap -> SExp 'Local a -> m (InfoMap, SExp 'Local a)
+--optimize :: (MonadLoggerIO m) => Int -> InfoMap -> SExp 'Local a -> m (InfoMap, SExp 'Local a)
+optimize :: (MonadLoggerIO m) => Int -> SExp 'Local a -> m (InfoMap, SExp 'Local a)
 optimize = do
     go (1::Int)
     where
-    go nbIter count infos e = do
+    go nbIter count e = do
       $(logInfo) $ T.pack ("Start Optimization: iteration nb " ++ show nbIter)
+      infos <- execStateT (analyseLocal e) M.empty
       (e', (count', b)) <- runStateT (fuseLocal infos e) (count, False)
       if b
-        then do go (nbIter+1) count' infos e'
+        then do go (nbIter+1) count' e'
         else do infos' <- execStateT (analyseLocal e') M.empty
                 $(logInfo) $ T.pack ("Exiting optimization after "++ show nbIter ++ " iteration(s)")
-                return (infos', e')
+                trace (show ("count = ",count', M.keys infos')) $ return (infos', e')
 
 optimized :: (MonadLoggerIO m) => StateT (Int, Bool) m ()
 optimized = do
@@ -47,13 +49,14 @@ optimized = do
   put (count, True)
 
 
---combineClosure :: (MonadLoggerIO m) => ExpClosure SExp a b -> ExpClosure SExp b c -> StateT (Int, Bool) m (ExpClosure SExp a c)
 combineClosure :: forall a b c  m. (MonadIO m) => ExpClosure SExp a b -> ExpClosure SExp b c -> StateT (Int, Bool) m (ExpClosure SExp a c)
 combineClosure (ExpClosure cf f) (ExpClosure cg g)  = do
   cfg <- combineFreeVars cf cg
   return $ ExpClosure cfg (\(cf', cg') a -> do
     r1 <- f cf' a
     g cg' r1)
+
+
 
 combineFreeVars :: (MonadIO m) => SExp 'Local a -> SExp 'Local b -> StateT (Int, Bool) m (SExp 'Local (a, b))
 combineFreeVars cf cg = do
@@ -80,11 +83,12 @@ fuseRemote infos (SRApply ne key g ie) | refCountInner > 1 = do
     where
     refCountInner = refCount (getRemoteIndex ie) infos
 
-fuseRemote infos (SRApply ne key g (SRApply _ _ f e)) = do
+fuseRemote infos (SRApply ne key g (SRApply ni keyi f e)) = do
     f' <- fuseClosure infos f
     g' <- fuseClosure infos g
     fg <- combineClosure f' g'
-    fuseRemote infos $ SRApply ne key fg e
+    e' <- fuseRemote infos e
+    fuseRemote infos $ SRApply ne key fg e'
 
 
 fuseRemote infos (SRApply n key g ie) = do

@@ -260,9 +260,9 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
   runComputation (MkRpcConfig (MkConfig {..}) _ _)  n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
     ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
-    infos <- execStateT (Ma.analyseLocal e) M.empty
+    --infos <- execStateT (Ma.analyseLocal e) M.empty
     e' <- if shouldOptimize
-            then logger $ fmap snd $ Ma.optimize count infos e
+            then logger $ fmap snd $ Ma.optimize count e
             else return e
     rpc' <- liftIO $ setSeed rpc seed
     (r, _) <- evalStateT (runLocal e') (rpc', V.empty)

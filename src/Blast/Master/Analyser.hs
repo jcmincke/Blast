@@ -18,6 +18,7 @@ import            Control.Monad.IO.Class
 import            Control.Monad.Trans.State
 import qualified  Data.ByteString as BS
 import qualified  Data.Map as M
+import qualified  Data.Set as S
 import qualified  Data.Serialize as S
 import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
@@ -84,7 +85,7 @@ visit :: Int -> InfoMap -> InfoMap
 visit n m =
   case M.lookup n m of
   Just (GenericInfo _ _) -> error ("Node " ++ show n ++ " has already been visited")
-  Nothing -> M.insert n (GenericInfo 0 ()) m
+  Nothing -> M.insert n (GenericInfo S.empty ()) m
 
 
 visitRemoteM :: forall a m. (MonadLoggerIO m) =>
@@ -108,9 +109,9 @@ analyseRemote :: (MonadLoggerIO m) => MExp 'Remote a -> StateT InfoMap m ()
 analyseRemote e@(MRApply n (ExpClosure ce _) a) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
-    increaseRefM (getRemoteIndex a)
+    referenceM n (getRemoteIndex a)
     analyseLocal ce
-    increaseRefM (getLocalIndex ce)
+    referenceM n (getLocalIndex ce)
     visitRemoteM e
 
 
@@ -125,7 +126,7 @@ analyseLocal e@(MLConst n _ _) = unlessM (wasVisitedM n) $ visitLocalM e
 analyseLocal e@(MCollect n _ a) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
-    increaseRefM (getRemoteIndex a)
+    referenceM n (getRemoteIndex a)
     visitLocalM e
 
 analyseLocal e@(MLApply n _ f a) =

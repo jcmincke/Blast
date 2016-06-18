@@ -39,27 +39,27 @@ class Joinable a b where
 fun :: (a -> b) -> Fun e a b
 fun f = Pure (return . f)
 
-closure :: (S.Serialize c, Show c, ChunkableFreeVar c) => e 'Local c -> (c -> a -> b) -> Fun e a b
+closure :: (S.Serialize c, ChunkableFreeVar c) => e 'Local c -> (c -> a -> b) -> Fun e a b
 closure ce f = Closure ce (\c a -> return $ f c a)
 
 
 foldFun :: (r -> a -> r) -> FoldFun e a r
 foldFun f = FoldPure (\r a -> return $ f r a)
 
-foldClosure :: (S.Serialize c, Show c, ChunkableFreeVar c) => e 'Local c -> (c -> r -> a -> r) -> FoldFun e a r
+foldClosure :: (S.Serialize c, ChunkableFreeVar c) => e 'Local c -> (c -> r -> a -> r) -> FoldFun e a r
 foldClosure ce f = FoldClosure ce (\c r a -> return $ f c r a)
 
 funIO :: (a -> IO b) -> Fun k a b
 funIO f = Pure f
 
-closureIO :: (S.Serialize c, Show c, ChunkableFreeVar c) => e 'Local c -> (c -> a -> IO b) -> Fun e a b
+closureIO :: (S.Serialize c, ChunkableFreeVar c) => e 'Local c -> (c -> a -> IO b) -> Fun e a b
 closureIO ce f = Closure ce f
 
 
 foldFunIO :: (r -> a -> IO r) -> FoldFun e a r
 foldFunIO f = FoldPure f
 
-foldClosureIO :: (S.Serialize c, Show c, ChunkableFreeVar c) => e 'Local c -> (c -> r -> a -> IO r) -> FoldFun e a r
+foldClosureIO :: (S.Serialize c, ChunkableFreeVar c) => e 'Local c -> (c -> r -> a -> IO r) -> FoldFun e a r
 foldClosureIO ce f = FoldClosure ce f
 
 
@@ -156,7 +156,7 @@ count e = do
   lfold f zero e
 
 rfold ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, Monad m)
-          => FoldFun e a r -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Remote (t r))
+          => FoldFun e a r -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Remote ([r]))
 rfold fp zero e = do
   cs <- mkRemoteClosure fp
   rapply cs e
@@ -165,17 +165,16 @@ rfold fp zero e = do
       cv <- (\z -> ((), z)) <$$> zero
       return $ ExpClosure cv (\((), z) a -> do
                 r <- foldM f z a
-                return $ pure r)
+                return [r])
   mkRemoteClosure (FoldClosure ce f) = do
       cv <- (\c z -> (c, z)) <$$> ce <**> zero
       return $ ExpClosure cv (\(c,z) a -> do
                 r <- foldM  (f c) z a
-                return $ pure r)
+                return [r])
 
 
-rfold' ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, Monad m
-            , S.Serialize (t r), UnChunkable (t r))
-          => FoldFun e a r -> (t r -> r) -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Local r)
+rfold' :: (Monad m, Applicative t, Traversable t, S.Serialize r, UnChunkable [r], Builder m e) =>
+  FoldFun e a r -> ([r] -> b) -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Local b)
 rfold' f aggregator zero a = do
   rs <- rfold f zero a
   ars <- collect rs
@@ -188,7 +187,7 @@ instance Joinable a b where
 
 
 
-instance (Eq k, Show k,Show a, Show b) => Joinable (KeyedVal k a) (KeyedVal k b) where
+instance (Eq k) => Joinable (KeyedVal k a) (KeyedVal k b) where
   join (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = Just (KeyedVal k1 a, KeyedVal k2 b)
   join (KeyedVal _ _) (KeyedVal _ _) = Nothing
 
@@ -238,8 +237,7 @@ instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v)), Chunkable (t (Ke
 
 
 rKeyedJoin
-  :: (Eq k, Monad m, Show (t1 (KeyedVal k t3)),
-      Show (t2 (KeyedVal k t4)), Applicative t, Applicative t1,
+  :: (Eq k, Monad m, Applicative t, Applicative t1,
       Foldable t, Foldable t1, Foldable t2,
       Monoid (t (KeyedVal k (t3, t4))), Monoid (t1 (KeyedVal k t3)),
       UnChunkable (t1 (KeyedVal k t3)), Chunkable (t1 (KeyedVal k t3)),
@@ -252,7 +250,7 @@ rKeyedJoin
 rKeyedJoin _ a b = do
   a' <- collect a
   ja <- OptiT <$$> a'
-  let cs = ExpClosure ja (\(OptiT av) bv -> trace (show av) $ trace (show bv) $ return $ fromList' $ catMaybes [doJoin x y | x <- toList av, y <- toList bv])
+  let cs = ExpClosure ja (\(OptiT av) bv -> return $ fromList' $ catMaybes [doJoin x y | x <- toList av, y <- toList bv])
   rapply cs b
   where
   doJoin (KeyedVal k1 a') (KeyedVal k2 b') | k1 == k2 = Just $ KeyedVal k1 (a', b')
@@ -281,15 +279,6 @@ instance Chunkable Range where
       where
       end' = if end > maxV then maxV else end
       end = current + delta
-
-
-
-
-
-
-
-
-
 
 
 

@@ -16,7 +16,7 @@ module Blast.Runner.Simple
 )
 where
 
-import            Data.Functor.Identity
+import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 
@@ -30,7 +30,7 @@ data Exp (k::Kind) a where
   LApply :: Exp 'Local (a -> b) -> Exp 'Local a -> Exp 'Local b
 
 
-instance Builder Identity Exp where
+instance (Monad m) => Builder m Exp where
   makeRApply f a = do
     return $ RApply f a
   makeRConst a = do
@@ -59,7 +59,7 @@ runRec (jobDesc@MkJobDesc {..}) = do
 runFun :: ExpClosure Exp a b -> IO (a -> IO b)
 runFun (ExpClosure e f) = do
   r <- runLocal e
-  return $ f r
+  trace "run fun" $ return $ f r
 
 
 
@@ -67,15 +67,15 @@ runRemote :: Exp 'Remote a -> IO a
 runRemote (RApply cs e) = do
   f' <- runFun cs
   e' <- runRemote e
-  f' e'
+  trace "rapply" $ f' e'
 
-runRemote (RConst e) = return e
+runRemote (RConst e) = trace "rconst" $ return e
 
 runLocal ::  Exp 'Local a -> IO a
-runLocal (Collect e) = runRemote e
-runLocal (LConst a) = return a
+runLocal (Collect e) = trace "collect" $ runRemote e
+runLocal (LConst a) = trace "lconst" $ return a
 runLocal (LApply f e) = do
   f' <- runLocal f
   e' <- runLocal e
-  return $ f' e'
+  trace "lapply" $ return $ f' e'
 

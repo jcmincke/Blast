@@ -2,21 +2,23 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE BangPatterns #-}
 
 
 module Main where
 
 import Debug.Trace
+import            Control.Concurrent
+import            Control.DeepSeq
 import qualified  Data.List as L
-import qualified  Data.Map as M
+
+import qualified  Data.Map.Strict as M
 import            Data.Proxy
 import            Control.Monad.IO.Class
 import            Control.Monad.Operational
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
-import qualified  Data.Map as M
 import            Data.Traversable
---import qualified  Data.Vault.Strict as V
 
 import qualified  Data.Vector as V
 
@@ -32,7 +34,6 @@ import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH
 
 
-main = return ()
 
 type Point = (Double, Double)
 
@@ -46,9 +47,9 @@ p0 = (0, 0)
 
 chooseCenter :: M.Map Point (Point, Int) -> Point -> M.Map Point (Point, Int)
 chooseCenter centerAndSums p =
-  trace (show r) r
+  r
   where
-  r = M.insertWith (\((x0, y0), _) ((x, y), n) -> ((x0+x, y0+y), n+1)) bestCenter (p, 1) centerAndSums
+  !r = force $ M.insertWith (\((x0, y0), _) ((x, y), n) -> ((x0+x, y0+y), n+1)) bestCenter (p, 1) centerAndSums
 
   bestCenter = findCenter c d t
   (c:t) = M.keys centerAndSums
@@ -60,12 +61,16 @@ chooseCenter centerAndSums p =
         then findCenter center d t
         else findCenter currentCenter currentDist t
 
-assignPoints :: V.Vector Point -> [Point] -> Range -> [(Point, (Point, Int))]
-assignPoints points centers range =
-  M.toList icenters'
+assignPoints :: Int -> [Point] -> Range -> [(Point, (Point, Int))]
+assignPoints nbPoints centers range =
+  r
   where
-  icenters' = L.foldl' chooseCenter icenters $ L.map (\i -> points V.! i) $ rangeToList range
+  !r = force $ M.toList icenters'
+  icenters' = L.foldl' chooseCenter icenters $ points
   icenters = M.fromList $ L.map (\c -> (c, (p0, 0))) centers
+  is = rangeToList range
+  points = L.map (\i -> ((fromIntegral i) / fromIntegral nbPoints , (fromIntegral i) / fromIntegral nbPoints)) is
+
 
 computeNewCenters :: [(Point, (Point, Int))] -> M.Map Point Point
 computeNewCenters l =
@@ -80,36 +85,39 @@ computeNewCenters l =
                        sumY = sum ys
                        n = sum ns
                        r = (sumX / (fromIntegral n), sumY / (fromIntegral n))
-                       in trace (show (xs, sumX, sumY, n, r, ns)) r)
+                       in r)
             x
 
 deltaCenter :: M.Map Point Point -> Double
 deltaCenter centers =
-  trace (show ("max = ", r)) r
+  r
   where
   r = maximum l
   l = L.map (\(p1, p2) -> sqrt $  dist p1 p2) $ M.toList centers
 
-expGenerator :: V.Vector Point -> Computation ([Point], Double) [Point]
-expGenerator points (centers, var) = do
-      let nbPoints = V.length points
+expGenerator :: Int -> Computation ([Point], Double) [Point]
+expGenerator nbPoints (centers, var) = do
+--      let nbPoints = V.length points
       range <- rconst $ Range 0 nbPoints
-      ricenters <- rapply' (fun (assignPoints points centers)) range
+      ricenters <- rapply' (funIO (proc nbPoints centers)) range
       icenters <- collect ricenters
       centerMap <- computeNewCenters <$$> icenters
       var' <-  deltaCenter <$$> centerMap
       centers' <- M.elems <$$> centerMap
       r <- (,) <$$>  centers' <**> var'
       (,) <$$> r <**> centers'
+      where
+      proc nbPoints centers range = do
+        putStrLn "start"
+        let !r = (assignPoints nbPoints centers range)
+        putStrLn "end"
+        return r
 
 
-points =
-  V.fromList $ L.map (\i -> ((fromIntegral i) / fromIntegral n , (fromIntegral i) / fromIntegral n)) [1..n]
-  where n = 1000
-criterion tol (_, x) (_, y) _ = trace (show (x,y)) $ abs (x - y) < tol
+criterion tol (_, x) (_, y) _ = abs (x - y) < tol
 
 jobDesc :: JobDesc ([Point], Double) [Point]
-jobDesc = MkJobDesc ([(0, 0), (1, 1)], 1000.0) (expGenerator points) reporting (criterion 0.1)
+jobDesc = MkJobDesc ([(0, 0), (1, 1)], 1000.0) (expGenerator 1000) reporting (criterion 0.1)
 
 
 rloc = do
@@ -131,37 +139,6 @@ reporting a b = do
   return a
 
 
-
-{-}
-expGenerator3 (a::Int) = do
-      r1 <- rconst [KeyedVal i (i*2) | i <- [1..10::Int]]
-
-      a1 <- collect r1
-
-      a' <- lconst (a+1)
-      rf <- ((,) <$$> a' <**> a1)
-      return rf
-
-
-
-
-expGenerator2 (a::Int) = do
-      r1 <- rconst [KeyedVal i (i*2) | i <- [1..10::Int]]
-      r2 <- rconst [KeyedVal i (i*3) | i <- [1..10::Int]]
-
-      j1 <- rKeyedJoin (Proxy::Proxy []) r1 r2
-      a1 <- collect j1
-
-  --    j2 <- rKeyedJoin r1 r2
- --     a2 <- collect j2
-
-      a' <- lconst (a+1)
---      r <- ((,) <$$> a1 <**> a2)
-      rf <- ((,) <$$> a' <**> a1)
-      return rf
-
-
-
 rpcConfigAction = return $
   MkRpcConfig
     (MkConfig True 1.0)
@@ -177,7 +154,7 @@ rtable :: RemoteTable
 rtable = __remoteTable initRemoteTable
 
 
-main = do
+ch = do
   args <- getArgs
   rpcConfig <- rpcConfigAction
   CH.runRec rtable rpcConfig args jobDesc $(mkClosure 'slaveClosure) k
@@ -187,6 +164,11 @@ main = do
     print b
     print "=========="
 
---main = return ()
 
--}
+main = ch
+simple = do
+  (a,b) <- logger $ S.runRec jobDesc
+  print a
+  print b
+  where
+  logger a = runLoggingT a (\_ _ _ _ -> return ())

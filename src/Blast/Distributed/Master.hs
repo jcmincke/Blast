@@ -68,6 +68,7 @@ runRemoteOneSlave slaveId oe@(MRApply n (ExpClosure ce _) e) = do
         Just (_, Just p) -> do
           let ceId = getLocalIndex ce
           let csBs = p Vc.! slaveId
+          liftIO $ print("cache missed", ceId)
           _ <- liftIO $ cache s slaveId ceId csBs
           runRemoteOneSlave slaveId oe
     RemCsResCacheMiss CachedArg -> do
@@ -111,7 +112,8 @@ fetchResults e = do
 
 
 runRemote ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault) m ()
-runRemote oe@(MRApply _ (ExpClosure ce _) e) = do
+runRemote oe@(MRApply n (ExpClosure ce _) e) = do
+  liftIO $ print ("running MRApply ", n)
   s <- getRemote
   runRemote e
   cp <- runLocal ce
@@ -164,7 +166,8 @@ runLocal (MCollect _ key e) = do
       setVault (V.insert key (a, Nothing) vault')
       return (a, Nothing)
 
-runLocal (MLApply _ key f e) = do
+runLocal (MLApply n key f e) = do
+  liftIO $ print ("running MLApply ", n)
   vault <- getVault
   let cvm = V.lookup key vault
   case cvm of
