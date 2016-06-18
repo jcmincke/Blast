@@ -28,7 +28,6 @@ nextIndex = do
   put (index+1, a)
 
 
---optimize :: (MonadLoggerIO m) => Int -> InfoMap -> SExp 'Local a -> m (InfoMap, SExp 'Local a)
 optimize :: (MonadLoggerIO m) => Int -> SExp 'Local a -> m (InfoMap, SExp 'Local a)
 optimize = do
     go (1::Int)

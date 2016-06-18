@@ -16,7 +16,7 @@ module Blast.Runner.Simple
 )
 where
 
-import Debug.Trace
+--import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 
@@ -50,7 +50,6 @@ runRec (jobDesc@MkJobDesc {..}) = do
   a' <- liftIO $ reportingAction a b
   case recPredicate a a' b of
     True -> do
-    --      $(logInfo) "Finished"
       return (a', b)
     False -> runRec (jobDesc {seed = a'})
 
@@ -59,7 +58,7 @@ runRec (jobDesc@MkJobDesc {..}) = do
 runFun :: ExpClosure Exp a b -> IO (a -> IO b)
 runFun (ExpClosure e f) = do
   r <- runLocal e
-  trace "run fun" $ return $ f r
+  return $ f r
 
 
 
@@ -67,15 +66,15 @@ runRemote :: Exp 'Remote a -> IO a
 runRemote (RApply cs e) = do
   f' <- runFun cs
   e' <- runRemote e
-  trace "rapply" $ f' e'
+  f' e'
 
-runRemote (RConst e) = trace "rconst" $ return e
+runRemote (RConst e) = return e
 
 runLocal ::  Exp 'Local a -> IO a
-runLocal (Collect e) = trace "collect" $ runRemote e
-runLocal (LConst a) = trace "lconst" $ return a
+runLocal (Collect e) = runRemote e
+runLocal (LConst a) = return a
 runLocal (LApply f e) = do
   f' <- runLocal f
   e' <- runLocal e
-  trace "lapply" $ return $ f' e'
+  return $ f' e'
 

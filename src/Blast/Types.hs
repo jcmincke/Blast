@@ -127,8 +127,7 @@ data JobDesc a b = MkJobDesc {
 
 data Config = MkConfig
   {
-    shouldOptimize :: Bool
-    , slaveAvailability :: Float
+    slaveAvailability :: Float
   }
 
 

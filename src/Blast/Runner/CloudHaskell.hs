@@ -55,7 +55,6 @@ import            GHC.Generics (Generic)
 import            Blast.Types
 import            Blast.Common.Analyser
 import            Blast.Master.Analyser as Ma
-import            Blast.Master.Optimizer as Ma
 import            Blast.Distributed.Types
 import            Blast.Distributed.Master
 import            Blast.Distributed.Slave
@@ -117,12 +116,8 @@ slaveProcess configurator (MkJobDesc {..}) slaveIdx = do
   serve slaveState (\ls -> return $ InitOk ls Infinity) server
   where
   handle logger ls req = do
-    liftIO $ putStrLn "slaveProcess: received cmd"
-    liftIO $ print req
     (resp, ls') <- liftIO $ logger $ runCommand ls req
     let resp' = force resp
-    liftIO $ putStrLn "slaveProcess: processed cmd"
-    liftIO $ print resp'
     replyWith resp' (ProcessContinue ls')
   exitHandler _ _ () = do
     liftIO $ putStrLn "slave exit"
@@ -259,20 +254,16 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
     RpcConfig -> Int -> RpcState a -> JobDesc a b -> LoggingT IO (a, b)
   runComputation (MkRpcConfig (MkConfig {..}) _ _)  n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
-    ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
-    --infos <- execStateT (Ma.analyseLocal e) M.empty
-    e' <- if shouldOptimize
-            then logger $ fmap snd $ Ma.optimize count e
-            else return e
+    ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
+    infos <- execStateT (Ma.analyseLocal e) M.empty
     rpc' <- liftIO $ setSeed rpc seed
-    (r, _) <- evalStateT (runLocal e') (rpc', V.empty)
+    (r, _) <- evalStateT (runLocal e) (rpc', V.empty, infos)
     return r
 
 
 startOneClientRpc :: SlaveInfo -> (Int -> Closure (Process ())) -> Process ()
 startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
   slavePid <- spawn _slaveNodeId (slaveClosure _slaveIndex)
---  liftIO $ print ("slave pid ", slavePid)
   catchExit
     (localProcess 0 slavePid)
     (\slavePid' () -> do

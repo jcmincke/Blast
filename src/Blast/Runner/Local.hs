@@ -17,7 +17,7 @@ module Blast.Runner.Local
 )
 where
 
-import Debug.Trace
+--import Debug.Trace
 import            Control.Concurrent
 import            Control.Concurrent.Async
 import            Control.DeepSeq
@@ -37,7 +37,6 @@ import            System.Random
 import            Blast.Types
 import            Blast.Common.Analyser
 import            Blast.Master.Analyser as Ma
-import            Blast.Master.Optimizer as Ma
 import            Blast.Distributed.Types
 import            Blast.Distributed.Master
 import            Blast.Distributed.Slave
@@ -47,15 +46,10 @@ runRec :: forall a b m s.
   (S.Serialize a, S.Serialize b, CommandClass s a, MonadLoggerIO m) =>
   Config -> s a -> JobDesc a b -> m (a, b)
 runRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
-  ((e::MExp 'Local (a,b)), count) <- runStateT (build (expGen seed)) 0
-  liftIO $ print ("nb nodes (master) = ", count)
+  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
   infos <- execStateT (Ma.analyseLocal e) M.empty
-  (infos2, e') <- if shouldOptimize
-                    then trace ("MASTER OPTIMIZED") $ runStdoutLoggingT $ Ma.optimize count e
-                    else return (infos, e)
-  liftIO $ print $ M.keys infos2
   s' <- liftIO $ setSeed s seed
-  ((a, b), _) <- evalStateT (runLocal e') (s', V.empty)
+  ((a, b), _) <- evalStateT (runLocal e) (s', V.empty, infos)
   a' <- liftIO $ reportingAction a b
   case recPredicate seed a' b of
     True -> return (a', b)
@@ -99,8 +93,7 @@ instance (S.Serialize a) => CommandClass Controller a where
       ExecRes -> return ExecRes
       ExecResError err -> return (ExecResError err)
   cache (MkController {..}) slaveId i bs = do
-    let (MkRemoteChannels {..}) = trace (show ("caching for ", i)) $ slaveChannels M.! slaveId
-   -- let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
+    let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
     let req = LsReqCache i bs
     let !req' = force req
     writeChan iocOutChan req'

@@ -19,6 +19,7 @@ import            Control.Monad.Operational
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 import            Data.Traversable
+--import qualified  Data.Vault.Strict as V
 
 import qualified  Data.Vector as V
 
@@ -49,6 +50,7 @@ chooseCenter :: M.Map Point (Point, Int) -> Point -> M.Map Point (Point, Int)
 chooseCenter centerAndSums p =
   r
   where
+--  !r = centerAndSums
   !r = force $ M.insertWith (\((x0, y0), _) ((x, y), n) -> ((x0+x, y0+y), n+1)) bestCenter (p, 1) centerAndSums
 
   bestCenter = findCenter c d t
@@ -61,23 +63,16 @@ chooseCenter centerAndSums p =
         then findCenter center d t
         else findCenter currentCenter currentDist t
 
-assignPoints :: Int -> [Point] -> Range -> [(Point, (Point, Int))]
-assignPoints nbPoints centers range =
-  r
-  where
-  !r = force $ M.toList icenters'
-  icenters' = L.foldl' chooseCenter icenters $ points
-  icenters = M.fromList $ L.map (\c -> (c, (p0, 0))) centers
-  is = rangeToList range
-  points = L.map (\i -> ((fromIntegral i) / fromIntegral nbPoints , (fromIntegral i) / fromIntegral nbPoints)) is
 
-
-computeNewCenters :: [(Point, (Point, Int))] -> M.Map Point Point
+computeNewCenters :: [M.Map Point (Point, Int)] -> M.Map Point Point
 computeNewCenters l =
   y
   where
+  l' = do
+    m <- l
+    M.toList m
   x::M.Map Point [(Point, Int)]
-  x = L.foldl' (\m (c, (p,n)) -> M.insertWith (++) c [(p, n)] m) M.empty  l
+  x = L.foldl' (\m (c, (p,n)) -> M.insertWith (++) c [(p, n)] m) M.empty l'
   y::M.Map Point Point
   y = M.map (\l -> let (ps, ns) = L.unzip l
                        (xs, ys) = L.unzip ps
@@ -97,35 +92,32 @@ deltaCenter centers =
 
 expGenerator :: Int -> Computation ([Point], Double) [Point]
 expGenerator nbPoints (centers, var) = do
---      let nbPoints = V.length points
       range <- rconst $ Range 0 nbPoints
-      ricenters <- rapply' (funIO (proc nbPoints centers)) range
-      icenters <- collect ricenters
-      centerMap <- computeNewCenters <$$> icenters
-      var' <-  deltaCenter <$$> centerMap
+      centers0 <- lconst $ M.fromList $ L.map (\c -> (c, (p0, 0::Int))) centers
+      points <- rapply' (fun(\r -> L.map (\i -> ((fromIntegral i) / fromIntegral nbPoints , (fromIntegral i) / fromIntegral nbPoints)) $ rangeToList r)) range
+
+      centerMap <- rfold' (foldFun chooseCenter) computeNewCenters centers0 points
+      var' <- deltaCenter <$$> centerMap
       centers' <- M.elems <$$> centerMap
-      r <- (,) <$$>  centers' <**> var'
+      lpoints <- collect points
+      r <- (,) <$$> centers' <**> var'
       (,) <$$> r <**> centers'
-      where
-      proc nbPoints centers range = do
-        putStrLn "start"
-        let !r = (assignPoints nbPoints centers range)
-        putStrLn "end"
-        return r
 
 
-criterion tol (_, x) (_, y) _ = abs (x - y) < tol
+criterion tol (_, x) (_, y::Double) _ = abs (x - y) < tol
 
-jobDesc :: JobDesc ([Point], Double) [Point]
-jobDesc = MkJobDesc ([(0, 0), (1, 1)], 1000.0) (expGenerator 1000) reporting (criterion 0.1)
+--jobDesc :: JobDesc ([Point], Double) [Point]
+jobDesc = MkJobDesc ([(0.0, 0.0), (1.0, 1.0)], 1000.0) (expGenerator 3000) reporting (criterion 0.1)
 
 
+rloc:: IO ()
 rloc = do
   let cf = MkConfig 1.0
-  s <- logger $ Loc.createController cf 4 jobDesc
+  s <- logger $ Loc.createController cf 1 jobDesc
   (a,b) <- logger $ Loc.runRec cf s jobDesc
   print a
   print b
+  return ()
   where
   logger a = runLoggingT a (\_ _ _ _ -> return ())
 
@@ -133,10 +125,11 @@ rloc = do
 
 reporting a b = do
   putStrLn "Reporting"
-  --print a
-  --print b
   putStrLn "End Reporting"
   return a
+
+
+
 
 
 rpcConfigAction = return $
@@ -160,15 +153,17 @@ ch = do
   CH.runRec rtable rpcConfig args jobDesc $(mkClosure 'slaveClosure) k
   where
   k a b = do
-    print a
-    print b
+--    print a
+ --   print b
     print "=========="
 
-
 main = ch
+
+simple :: IO ()
 simple = do
   (a,b) <- logger $ S.runRec jobDesc
   print a
   print b
+  return ()
   where
   logger a = runLoggingT a (\_ _ _ _ -> return ())

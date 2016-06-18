@@ -12,7 +12,7 @@
 module Blast.Slave.Analyser
 where
 
-import Debug.Trace
+--import Debug.Trace
 import            Control.Bool (unlessM)
 import            Control.Monad.Logger
 import            Control.Monad.IO.Class
@@ -51,23 +51,23 @@ instance (MonadIO m) => Builder (StateT Int m) SExp where
   makeRApply f a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    trace (show ("SRApply=", i)) $ return $ SRApply i k f a
+    return $ SRApply i k f a
   makeRConst a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    trace (show ("SRConst=", i)) $ return $ SRConst i k a
+    return $ SRConst i k a
   makeLConst a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    trace (show ("SLConst=", i)) $ return $ SLConst i k a
+    return $ SLConst i k a
   makeCollect a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    trace (show ("SCollect=", i)) $ return $ SCollect i k a
+    return $ SCollect i k a
   makeLApply f a = do
     i <- nextIndex
     k <- liftIO V.newKey
-    trace (show ("SLApply=", i)) $ return $ SLApply i k f a
+    return $ SLApply i k f a
 
 
 
@@ -109,11 +109,11 @@ getVal cvt vault key =
   Just v -> right v
   Nothing -> left $ RemCsResCacheMiss cvt
 
-getLocalVal :: (Monad m) =>  CachedValType -> V.Vault -> Int -> V.Key a -> EitherT RemoteClosureResult m a
-getLocalVal cvt vault n key  =
+getLocalVal :: (Monad m) =>  CachedValType -> V.Vault -> V.Key a -> EitherT RemoteClosureResult m a
+getLocalVal cvt vault key  =
   case V.lookup key vault of
   Just v -> right v
-  Nothing -> trace (show ("ERROR, cache miss node ", n)) $ left $ RemCsResCacheMiss cvt
+  Nothing -> left $ RemCsResCacheMiss cvt
 
 getRemoteClosure :: Int -> InfoMap -> RemoteClosureImpl
 getRemoteClosure n m =
@@ -136,13 +136,12 @@ mkRemoteClosure keya keyb (ExpClosure e f) = do
   analyseLocal e
   addLocalExpCacheM e
   let keyc = getLocalVaultKey e
-  let nc = getLocalIndex e
-  return $ wrapClosure (nc, keyc) keya keyb f
+  return $ wrapClosure keyc keya keyb f
 
 
 wrapClosure :: forall a b c .
-            (Int, V.Key c) -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
-wrapClosure (nc, keyc) keya keyb f =
+            V.Key c -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
+wrapClosure keyc keya keyb f =
     proc
     where
     proc vault = do
@@ -150,7 +149,7 @@ wrapClosure (nc, keyc) keya keyb f =
       return $ either (\l -> (l, vault)) id r'
       where
       r = do
-        c <- getLocalVal CachedFreeVar vault nc keyc
+        c <- getLocalVal CachedFreeVar vault keyc
         av <- getVal CachedArg vault keya
         brdd <- liftIO $ (f c) av
         let vault' = V.insert keyb brdd vault
@@ -223,33 +222,6 @@ addRemoteExpCacheReaderM e = do
   put $ addRemoteExpCacheReader n key m
 
 
-{-
-
-mkRemoteClosureM :: forall a b m . (MonadLoggerIO m) =>
-  V.Key a -> V.Key b -> ExpClosure SExp a b -> StateT InfoMap m RemoteClosureImpl
-mkRemoteClosureM keya keyb (ExpClosure e f) = do
-  analyseLocal e
-  addLocalExpCacheM e
-  let keyc = getLocalVaultKey e
-  return $ wrapClosureM keyc keya keyb f
-
-
-wrapClosureM :: forall a b c .
-            V.Key c -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
-wrapClosureM keyc keya keyb f =
-    proc
-    where
-    proc vault = do
-      r' <- runEitherT r
-      return $ either (\l -> (l, vault)) id r'
-      where
-      r = do
-        c <- getLocalVal CachedFreeVar vault keyc
-        av <- getVal CachedArg vault keya
-        brdd <- liftIO $ (f c) av
-        let vault' = V.insert keyb brdd vault
-        return (ExecRes, vault')
--}
 
 getRemoteIndex :: SExp 'Remote a -> Int
 getRemoteIndex (SRApply i _ _ _) = i
@@ -272,11 +244,10 @@ getLocalVaultKey (SLApply _ k _ _) = k
 
 analyseRemote :: (MonadLoggerIO m) => SExp 'Remote a -> StateT InfoMap m ()
 analyseRemote (SRApply n keyb cs@(ExpClosure ce _) a) = do
-  --unlessM (wasVisitedM n) $ do
+  unlessM (wasVisitedM n) $ do
     analyseRemote a
     referenceM n (getRemoteIndex a)
     analyseLocal ce
---    addLocalExpCacheM ce
     referenceM n (getLocalIndex ce)
     $(logInfo) $ T.pack ("create closure for RApply node " ++ show n)
     let keya = getRemoteVaultKey a
@@ -315,18 +286,17 @@ analyseRemote (SRConst n key _) = do
 analyseLocal :: (MonadLoggerIO m) => SExp 'Local a -> StateT InfoMap m ()
 
 analyseLocal(SLConst n _ _) = do
---  unlessM (wasVisitedM n) $ visitLocalExpM n
-  visitLocalExpM n
+  unlessM (wasVisitedM n) $ visitLocalExpM n
 
 analyseLocal (SCollect n _ e) = do
---  unlessM (wasVisitedM n) $ do
+  unlessM (wasVisitedM n) $ do
     analyseRemote e
     addRemoteExpCacheReaderM e
     referenceM n (getRemoteIndex e)
     visitLocalExpM n
 
 analyseLocal (SLApply n _ f e) = do
---  unlessM (wasVisitedM n) $ do
+  unlessM (wasVisitedM n) $ do
     analyseLocal f
     analyseLocal e
     visitLocalExpM n

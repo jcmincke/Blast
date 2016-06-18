@@ -20,8 +20,8 @@ library
     Blast.Common.Analyser
     Blast.Slave.Analyser
     Blast.Master.Analyser
-    Blast.Master.Optimizer
-    Blast.Slave.Optimizer
+--    Blast.Master.Optimizer
+--    Blast.Slave.Optimizer
     Blast.Runner.Local
     Blast.Runner.Simple
     Blast.Runner.CloudHaskell

@@ -16,7 +16,7 @@ module Blast.Distributed.Slave
 )
 where
 
-import Debug.Trace
+--import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
@@ -30,7 +30,6 @@ import Blast.Types
 import Blast.Distributed.Types
 import Blast.Common.Analyser
 import Blast.Slave.Analyser
-import Blast.Slave.Optimizer
 
 
 
@@ -49,14 +48,9 @@ runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
   case S.decode bs of
     Left e -> error e
     Right a -> do
-      ((e::SExp 'Local (a,b)), count) <- runStateT (expGen a) 0
-      liftIO $ print ("nb nodes (slave) = ", count)
-      infos1 <- execStateT (analyseLocal e) M.empty
-      (infos2, _) <- if (shouldOptimize config)
-                        then trace ("SLAVE OPTIMIZED") $ optimize count e
-                        else return (infos1, e)
-      liftIO $ print (M.keys infos2)
-      let ls' = ls {infos = infos2, vault = V.empty}
+      ((e::SExp 'Local (a,b)), _) <- runStateT (expGen a) 0
+      infos' <- execStateT (analyseLocal e) M.empty
+      let ls' = ls {infos = infos', vault = V.empty}
       return  (LsRespVoid, ls')
 runCommand ls LsReqStatus = return (LsRespBool (not $ M.null $ infos ls), ls)
 runCommand ls (LsReqExecute i ) = do
@@ -73,7 +67,6 @@ runCommand ls (LsReqCache i bs) =
         return (LsRespBool True, ls {vault = vault'})
 
       Just (GenericInfo _ (NtLExp (MkLExpInfo cacherFun _ ))) -> do
-        liftIO $ print ("slave caching ", i)
         let vault' = cacherFun bs (vault ls)
         return (LsRespBool True, ls {vault = vault'})
 
@@ -98,6 +91,6 @@ runCommand ls (LsReqFetch i) = do
         return (LsFetch $ cacheReaderFun (vault ls), ls)
       Just (GenericInfo _ (NtRConst (MkRConstInfo _ _ (Just cacheReaderFun)))) -> do
         return (LsFetch $ cacheReaderFun (vault ls), ls)
-      _ -> return $ trace ("no cache reader for node: " ++ show i) (LsFetch Nothing, ls)
+      _ -> return $ (LsFetch Nothing, ls)
 
 
