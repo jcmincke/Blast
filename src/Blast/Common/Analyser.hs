@@ -20,7 +20,7 @@ import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
 import            GHC.Generics (Generic)
 
-
+import            Blast.Types
 
 
 data CachedValType = CachedArg | CachedFreeVar
@@ -41,21 +41,6 @@ instance Binary CachedValType
 
 type RemoteClosureImpl = V.Vault -> IO (RemoteClosureResult, V.Vault)
 
-
-data GenericInfo i = GenericInfo {
-  _refs :: S.Set Int -- set of parents, that is, nodes that reference this node
-  , _info :: i
-  }
-
-$(makeLenses ''GenericInfo)
-
-type GenericInfoMap i = M.Map Int (GenericInfo i)
-
-refCount :: Int -> GenericInfoMap i -> Int
-refCount n m =
-  case M.lookup n m of
-    Just inf -> S.size $ view refs inf
-    Nothing -> error ("Ref count not found for node: " ++ show n)
 
 
 

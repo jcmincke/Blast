@@ -19,33 +19,48 @@ where
 --import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
+import qualified  Data.Map as M
 
 import            Blast.Types
 
 data Exp (k::Kind) a where
-  RApply :: ExpClosure Exp a b -> Exp 'Remote a -> Exp 'Remote b
-  RConst ::  a -> Exp 'Remote a
-  LConst :: a -> Exp 'Local a
-  Collect :: Exp 'Remote a -> Exp 'Local a
-  LApply :: Exp 'Local (a -> b) -> Exp 'Local a -> Exp 'Local b
+  RApply :: Int -> ExpClosure Exp a b -> Exp 'Remote a -> Exp 'Remote b
+  RConst :: Int -> a -> Exp 'Remote a
+  LConst :: Int -> a -> Exp 'Local a
+  Collect :: Int -> Exp 'Remote a -> Exp 'Local a
+  LApply :: Int -> Exp 'Local (a -> b) -> Exp 'Local a -> Exp 'Local b
 
 
 instance (Monad m) => Builder m Exp where
-  makeRApply f a = do
-    return $ RApply f a
-  makeRConst a = do
-    return $ RConst a
-  makeLConst a = do
-    return $ LConst a
-  makeCollect a = do
-    return $ Collect a
-  makeLApply f a = do
-    return $ LApply f a
+  makeRApply n f a = do
+    return $ RApply n f a
+  makeRConst n a = do
+    return $ RConst n a
+  makeLConst n a = do
+    return $ LConst n a
+  makeCollect n a = do
+    return $ Collect n a
+  makeLApply n f a = do
+    return $ LApply n f a
+  fuse refMap n e = return (e, refMap, n)
+
+
+
+instance Indexable Exp where
+  getIndex (RApply n _ _) = n
+  getIndex (RConst n _) = n
+  getIndex (LConst n _) = n
+  getIndex (Collect n _) = n
+  getIndex (LApply n _ _) = n
 
 
 runRec :: forall a b m.(Builder m Exp, MonadLoggerIO m) => JobDesc a b -> m (a, b)
 runRec (jobDesc@MkJobDesc {..}) = do
-  (e::Exp 'Local (a,b)) <- build (expGen seed)
+  let program = expGen seed
+  (refMap, count) <- generateReferenceMap 0 M.empty program
+--  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
+  (e::Exp 'Local (a,b)) <- build False refMap (0::Int) (1000::Int) program
+--  (e::Exp 'Local (a,b)) <- build (expGen seed)
   (a,b) <- liftIO $ runLocal e
   a' <- liftIO $ reportingAction a b
   case recPredicate a a' b of
@@ -63,17 +78,17 @@ runFun (ExpClosure e f) = do
 
 
 runRemote :: Exp 'Remote a -> IO a
-runRemote (RApply cs e) = do
+runRemote (RApply _ cs e) = do
   f' <- runFun cs
   e' <- runRemote e
   f' e'
 
-runRemote (RConst e) = return e
+runRemote (RConst _ e) = return e
 
 runLocal ::  Exp 'Local a -> IO a
-runLocal (Collect e) = runRemote e
-runLocal (LConst a) = return a
-runLocal (LApply f e) = do
+runLocal (Collect _ e) = runRemote e
+runLocal (LConst _ a) = return a
+runLocal (LApply _ f e) = do
   f' <- runLocal f
   e' <- runLocal e
   return $ f' e'

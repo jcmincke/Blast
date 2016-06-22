@@ -46,26 +46,30 @@ nextIndex = do
   return index
 
 
-instance (MonadIO m) => Builder (StateT Int m) MExp where
-  makeRApply f a = do
-    i <- nextIndex
+instance (MonadIO m) => Builder m MExp where
+  makeRApply i f a = do
     return $ MRApply i f a
-  makeRConst a = do
-    i <- nextIndex
+  makeRConst i a = do
     k <- liftIO V.newKey
     return $ MRConst i k a
-  makeLConst a = do
-    i <- nextIndex
+  makeLConst i a = do
     k <- liftIO V.newKey
     return $ MLConst i k a
-  makeCollect a = do
-    i <- nextIndex
+  makeCollect i a = do
     k <- liftIO V.newKey
     return $ MCollect i k a
-  makeLApply f a = do
-    i <- nextIndex
+  makeLApply i f a = do
     k <- liftIO V.newKey
     return $ MLApply i k f a
+  fuse refMap n e = return (e, refMap, n)
+
+
+instance Indexable MExp where
+  getIndex (MRApply n _ _) = n
+  getIndex (MRConst n _ _) = n
+  getIndex (MLConst n _ _) = n
+  getIndex (MCollect n _ _) = n
+  getIndex (MLApply n _ _ _) = n
 
 
 

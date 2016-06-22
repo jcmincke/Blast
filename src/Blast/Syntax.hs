@@ -86,8 +86,8 @@ rmap fm e  = do
     return $ ExpClosure ue (\() a -> mapM f a)
   mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> mapM (f c) a)
 
-rflatmap :: (Monad m, Foldable t1, Monoid (IO b), Builder m e) =>
-  Fun e t b  -> e 'Remote (t1 t) -> ProgramT (Syntax m) m (e 'Remote b)
+rflatmap :: (Monad m, Foldable t1, Builder m e, Monoid b) =>
+            Fun e t b -> e 'Remote (t1 t) -> ProgramT (Syntax m) m (e 'Remote b)
 rflatmap fp e = do
   cs <- mkRemoteClosure fp
   rapply cs e

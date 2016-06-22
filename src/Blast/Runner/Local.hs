@@ -24,6 +24,7 @@ import            Control.DeepSeq
 import            Control.Monad
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
+import            Control.Monad.Operational
 import            Control.Monad.Trans.State
 
 import qualified  Data.Map as M
@@ -46,7 +47,10 @@ runRec :: forall a b m s.
   (S.Serialize a, S.Serialize b, CommandClass s a, MonadLoggerIO m) =>
   Config -> s a -> JobDesc a b -> m (a, b)
 runRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
-  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
+  let program = expGen seed
+  (refMap, count) <- generateReferenceMap 0 M.empty program
+--  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
+  (e::MExp 'Local (a,b)) <- build False refMap (0::Int) (1000::Int) program
   infos <- execStateT (Ma.analyseLocal e) M.empty
   s' <- liftIO $ setSeed s seed
   ((a, b), _) <- evalStateT (runLocal e) (s', V.empty, infos)
@@ -158,7 +162,7 @@ createController cf@(MkConfig {..}) nbSlaves (MkJobDesc {..}) = do
   m <- liftIO $ foldM proc M.empty [0..nbSlaves-1]
   return $ MkController m Nothing cf
   where
-  expGen' a = build $ expGen a
+--  expGen' a = build $ expGen a
   proc acc i = do
     (iChan, oChan, ls) <- createOneSlave i M.empty
     let rc = MkRemoteChannels iChan oChan
@@ -168,7 +172,7 @@ createController cf@(MkConfig {..}) nbSlaves (MkJobDesc {..}) = do
   createOneSlave slaveId infos = do
     iChan <- newChan
     oChan <- newChan
-    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty expGen' cf)
+    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty expGen cf)
 
 
 runSlave :: (S.Serialize a) => Chan LocalSlaveRequest -> Chan LocalSlaveResponse -> LocalSlave (LoggingT IO) a b -> IO ()

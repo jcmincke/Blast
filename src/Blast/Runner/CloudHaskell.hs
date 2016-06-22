@@ -104,9 +104,7 @@ slaveProcess :: forall a b . (S.Serialize a, Typeable a, Typeable b) =>
 slaveProcess configurator (MkJobDesc {..}) slaveIdx = do
   (MkRpcConfig config _ (MkSlaveConfig {..})) <- liftIO configurator
   liftIO $ putStrLn $ "starting slave process: " ++ show slaveIdx
-  let expGen' a = build (expGen a)
-  let slaveState = MkLocalSlave slaveIdx M.empty V.empty expGen' config
-
+  let slaveState = MkLocalSlave slaveIdx M.empty V.empty expGen config
   let (server::ProcessDefinition (LocalSlave (LoggingT IO) a b)) = defaultProcess {
       apiHandlers = [handleCall (handle slaveLogger)]
     , exitHandlers = [handleExit exitHandler]
@@ -250,7 +248,12 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
     RpcConfig -> Int -> RpcState a -> JobDesc a b -> LoggingT IO (a, b)
   runComputation (MkRpcConfig (MkConfig {..}) _ _)  n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
-    ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
+    let program = expGen seed
+    (refMap, count) <- generateReferenceMap 0 M.empty program
+--  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
+    (e::MExp 'Local (a,b)) <- build False refMap (0::Int) (1000::Int) program
+
+ --   ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
     infos <- execStateT (Ma.analyseLocal e) M.empty
     rpc' <- liftIO $ setSeed rpc seed
     (r, _) <- evalStateT (runLocal e) (rpc', V.empty, infos)

@@ -19,6 +19,7 @@ where
 --import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
+import            Control.Monad.Operational
 import            Control.Monad.Trans.State
 
 import qualified  Data.Map as M
@@ -38,7 +39,7 @@ data LocalSlave m a b = MkLocalSlave {
   localSlaveId :: Int
   , infos :: InfoMap
   , vault :: V.Vault
-  , expGen :: a -> StateT Int m (SExp 'Local (a, b))
+  , expGen :: a -> ProgramT (Syntax m) m (SExp 'Local (a, b))
   , config :: Config
   }
 
@@ -48,7 +49,11 @@ runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
   case S.decode bs of
     Left e -> error e
     Right a -> do
-      ((e::SExp 'Local (a,b)), _) <- runStateT (expGen a) 0
+      let program = expGen a
+      (refMap, count) <- generateReferenceMap 0 M.empty program
+      (e::SExp 'Local (a,b)) <- build False refMap (0::Int) (1000::Int) program
+
+--      ((e::SExp 'Local (a,b)), _) <- runStateT (expGen a) 0
       infos' <- execStateT (analyseLocal e) M.empty
       let ls' = ls {infos = infos', vault = V.empty}
       return  (LsRespVoid, ls')
