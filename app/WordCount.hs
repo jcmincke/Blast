@@ -95,7 +95,7 @@ jobDesc = MkJobDesc () (expGenerator 8) reporting (\_ _ _ -> True)
 
 rloc:: IO ()
 rloc = do
-  let cf = MkConfig 1.0
+  let cf = MkConfig False 1.0
   s <- logger $ Loc.createController cf 4 jobDesc
   (a,b) <- logger $ Loc.runRec cf s jobDesc
   print a
@@ -116,7 +116,7 @@ reporting a b = do
 
 rpcConfigAction = return $
   MkRpcConfig
-    (MkConfig 1.0)
+    (MkConfig False 1.0)
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 

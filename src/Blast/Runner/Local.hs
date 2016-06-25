@@ -50,7 +50,7 @@ runRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   let program = expGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
 --  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
-  (e::MExp 'Local (a,b)) <- build False refMap (0::Int) (1000::Int) program
+  (e::MExp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) (1000::Int) program
   infos <- execStateT (Ma.analyseLocal e) M.empty
   s' <- liftIO $ setSeed s seed
   ((a, b), _) <- evalStateT (runLocal e) (s', V.empty, infos)

@@ -107,12 +107,12 @@ expGenerator nbPoints (centers, var) = do
 criterion tol (_, x) (_, y::Double) _ = abs (x - y) < tol
 
 --jobDesc :: JobDesc ([Point], Double) [Point]
-jobDesc = MkJobDesc ([(0.0, 0.0), (1.0, 1.0)], 1000.0) (expGenerator 10000000) reporting (criterion 0.1)
+jobDesc = MkJobDesc ([(0.0, 0.0), (1.0, 1.0)], 1000.0) (expGenerator 100) reporting (criterion 0.1)
 
 
-rloc:: IO ()
-rloc = do
-  let cf = MkConfig 1.0
+rloc :: Bool -> IO ()
+rloc shouldOptimize = do
+  let cf = MkConfig shouldOptimize 1.0
   s <- logger $ Loc.createController cf 1 jobDesc
   (a,b) <- logger $ Loc.runRec cf s jobDesc
   print a
@@ -134,7 +134,7 @@ reporting a b = do
 
 rpcConfigAction = return $
   MkRpcConfig
-    (MkConfig 1.0)
+    (MkConfig False 1.0)
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 
@@ -159,9 +159,9 @@ ch = do
 
 main = ch
 
-simple :: IO ()
-simple = do
-  (a,b) <- logger $ S.runRec jobDesc
+simple :: Bool -> IO ()
+simple shouldOptimize = do
+  (a,b) <- logger $ S.runRec shouldOptimize jobDesc
   print a
   print b
   return ()

@@ -63,7 +63,7 @@ instance (MonadIO m) => Builder m SExp where
   makeLApply i f a = do
     k <- liftIO V.newKey
     return $ SLApply i k f a
-  fuse refMap n e = return (e, refMap, n)
+  fuse refMap n e = fuseRemote refMap n e
 
 instance Indexable SExp where
   getIndex (SRApply n _ _ _) = n
@@ -307,6 +307,39 @@ analyseLocal (SLApply n _ f e) = do
 
 
 
+
+--combineClosure :: forall a b c  m. (MonadIO m) => ExpClosure MExp a b -> ExpClosure MExp b c -> StateT (Int, Bool) m (ExpClosure MExp a c)
+combineClosure counter (ExpClosure cf f) (ExpClosure cg g)  = do
+  (cfg, counter') <- combineFreeVars counter cf cg
+  let cs = ExpClosure cfg (\(cf', cg') a -> do
+              r1 <- f cf' a
+              g cg' r1)
+  return (cs, counter')
+
+--combineFreeVars :: (MonadIO m) => MExp 'Local a -> MExp 'Local b -> StateT (Int, Bool) m (MExp 'Local (a, b))
+combineFreeVars counter cf cg = do
+    k1 <- liftIO $ V.newKey
+    let f = SLConst counter k1 (,)
+    k2 <- liftIO $ V.newKey
+    let a = SLApply (counter+1) k2 f cf
+    k3 <- liftIO $ V.newKey
+    let b = SLApply (counter+2) k3 a cg
+    return (b, counter+3)
+
+
+
+fuseRemote :: (MonadIO m) => GenericInfoMap () -> Int -> SExp 'Remote a -> m (SExp 'Remote a, GenericInfoMap (), Int)
+fuseRemote infos counter oe@(SRApply ne k g ie) | refCountInner > 1 =
+    return (oe, infos, counter)
+    where
+    refCountInner = refCount (getRemoteIndex ie) infos
+
+fuseRemote infos counter (SRApply ne key g (SRApply ni _ f e)) = do
+    (fg, counter') <- combineClosure counter f g
+    return (SRApply ne key fg e, infos, counter')
+
+
+fuseRemote infos counter oe = return (oe, infos, counter)
 
 
 

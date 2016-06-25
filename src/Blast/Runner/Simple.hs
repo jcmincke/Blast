@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -16,7 +17,7 @@ module Blast.Runner.Simple
 )
 where
 
---import Debug.Trace
+import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import qualified  Data.Map as M
@@ -54,19 +55,24 @@ instance Indexable Exp where
   getIndex (LApply n _ _) = n
 
 
-runRec :: forall a b m.(Builder m Exp, MonadLoggerIO m) => JobDesc a b -> m (a, b)
-runRec (jobDesc@MkJobDesc {..}) = do
+runRec :: forall a b m.(Builder m Exp, MonadLoggerIO m) => Bool -> JobDesc a b -> m (a, b)
+runRec shouldOptimize (jobDesc@MkJobDesc {..}) = do
   let program = expGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
+  liftIO $ print refMap
 --  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
-  (e::Exp 'Local (a,b)) <- build False refMap (0::Int) (1000::Int) program
+  !(e::Exp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) (1000::Int) program
 --  (e::Exp 'Local (a,b)) <- build (expGen seed)
+  liftIO $ print "start"
   (a,b) <- liftIO $ runLocal e
+  liftIO $ print "end"
   a' <- liftIO $ reportingAction a b
   case recPredicate a a' b of
     True -> do
       return (a', b)
-    False -> runRec (jobDesc {seed = a'})
+    False -> do
+      liftIO $ print "cnt"
+      runRec shouldOptimize (jobDesc {seed = a'})
 
 
 
@@ -81,7 +87,7 @@ runRemote :: Exp 'Remote a -> IO a
 runRemote (RApply _ cs e) = do
   f' <- runFun cs
   e' <- runRemote e
-  f' e'
+  trace "RApply" $ f' e'
 
 runRemote (RConst _ e) = return e
 

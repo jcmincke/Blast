@@ -17,7 +17,7 @@
 module Blast.Types
 where
 
-
+import Debug.Trace
 import qualified  Control.Lens as Lens (set, view, makeLenses)
 import            Control.Monad.Operational
 import qualified  Data.List as L
@@ -31,6 +31,7 @@ data GenericInfo i = GenericInfo {
   _refs :: S.Set Int -- set of parents, that is, nodes that reference this node
   , _info :: i
   }
+    deriving Show
 
 $(Lens.makeLenses ''GenericInfo)
 
@@ -116,6 +117,11 @@ refCount n m =
     Just inf -> S.size $ Lens.view refs inf
     Nothing -> error ("Ref count not found for node: " ++ show n)
 
+addUnitInfo :: Int -> GenericInfoMap () -> GenericInfoMap ()
+addUnitInfo n map =
+  case M.lookup n map of
+    Just _ -> error $  ("Node " ++ show n ++ " already exists")
+    Nothing -> M.insert n (GenericInfo S.empty ()) map
 
 
 reference :: Int -> Int -> GenericInfoMap i -> GenericInfoMap i
@@ -123,34 +129,6 @@ reference parent child map = do
   case M.lookup child map of
     Just inf@(GenericInfo old _) -> M.insert child (Lens.set refs (S.insert parent old) inf) map
     Nothing -> error $  ("Node " ++ show child ++ " is referenced before being visited")
-
-{-
-data RefExp (k::Kind) a where
-  RefRApply :: Int -> ExpClosure Exp a b -> RefExp 'Remote a -> RefExp 'Remote b
-  RefRConst :: Int -> a -> RefExp 'Remote a
-  RefLConst :: Int -> a -> RefExp 'Local a
-  RefCollect :: Int -> RefExp 'Remote a -> RefExp 'Local a
-  RefLApply :: Int -> RefExp 'Local (a -> b) -> RefExp 'Local a -> RefExp 'Local b
-
-
-instance (Monad m) => Builder m RefExp where
-  makeRApply n f a = do
-    return $ RefRApply n f a
-  makeRConst n a = do
-    return $ RefRConst n a
-  makeLConst n a = do
-    return $ RefLConst n a
-  makeCollect n a = do
-    return $ RefCollect n a
-  makeLApply n f a = do
-    return $ RefLApply n f a
-  getIndex (RefRApply n _ _) = n
-  getIndex (RefRConst n _) = n
-  getIndex (RefLConst n _) = n
-  getIndex (RefCollect n _) = n
-  getIndex (RefLApply n _ _) = n
-  fuse refMap n e = return (e, refMap, n)
--}
 
 generateReferenceMap ::forall a m e. (Builder m e, Monad m) =>  Int -> GenericInfoMap () -> ProgramT (Syntax m) m (e 'Local a) -> m (GenericInfoMap (), Int)
 generateReferenceMap counter map p = do
@@ -160,24 +138,29 @@ generateReferenceMap counter map p = do
     eval :: (Builder m e, Monad m) => ProgramViewT (Syntax m) m (e 'Local a) -> m (GenericInfoMap(), Int)
     eval (StxRApply cs@(ExpClosure ce _) a :>>=  is) = do
       e <- makeRApply counter cs a
-      let map' = reference counter (getIndex ce) map
-      let map'' = reference counter (getIndex a) map'
-      generateReferenceMap (counter+1) map'' (is e)
+      let map' = addUnitInfo counter map
+      let map'' = reference counter (getIndex ce) map'
+      let map''' = reference counter (getIndex a) map''
+      generateReferenceMap (counter+1) map''' (is e)
     eval (StxRConst a :>>=  is) = do
       e <- makeRConst counter a
-      generateReferenceMap (counter+1) map (is e)
+      let map' = addUnitInfo counter map
+      generateReferenceMap (counter+1) map' (is e)
     eval (StxLConst a :>>=  is) = do
       e <- makeLConst counter a
-      generateReferenceMap (counter+1) map (is e)
+      let map' = addUnitInfo counter map
+      generateReferenceMap (counter+1) map' (is e)
     eval (StxCollect a :>>=  is) = do
       e <- makeCollect counter a
-      let map' = reference counter (getIndex a) map
-      generateReferenceMap (counter+1) map' (is e)
-    eval (StxLApply f a :>>=  is) = do
-      e <- makeLApply counter f a
-      let map' = reference counter (getIndex f) map
+      let map' = addUnitInfo counter map
       let map'' = reference counter (getIndex a) map'
       generateReferenceMap (counter+1) map'' (is e)
+    eval (StxLApply f a :>>=  is) = do
+      e <- makeLApply counter f a
+      let map' = addUnitInfo counter map
+      let map'' = reference counter (getIndex f) map'
+      let map''' = reference counter (getIndex a) map''
+      generateReferenceMap (counter+1) map''' (is e)
     eval (Return a) = return (map, counter)
 
 
@@ -193,7 +176,7 @@ build shouldOptimize refMap counter fuseCounter p = do
       (e', refMap', fuseCounter') <- if shouldOptimize
                                       then fuse refMap fuseCounter e
                                       else return (e, refMap, fuseCounter)
-      build shouldOptimize refMap' (counter+1) fuseCounter' (is e')
+      trace ("kkk") $ build shouldOptimize refMap' (counter+1) fuseCounter' (is e')
     eval (StxRConst a :>>=  is) = do
       e <- makeRConst counter a
       build shouldOptimize refMap (counter+1) fuseCounter (is e)
@@ -221,7 +204,8 @@ data JobDesc a b = MkJobDesc {
 
 data Config = MkConfig
   {
-    slaveAvailability :: Float
+    shouldOptimize :: Bool
+    , slaveAvailability :: Float
   }
 
 

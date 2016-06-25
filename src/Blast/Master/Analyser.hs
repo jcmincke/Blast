@@ -25,6 +25,7 @@ import qualified  Data.Vault.Strict as V
 
 import            Blast.Types
 import            Blast.Common.Analyser
+--import            Blast.Master.Optimizer
 
 type InfoMap = GenericInfoMap ()
 
@@ -61,7 +62,9 @@ instance (MonadIO m) => Builder m MExp where
   makeLApply i f a = do
     k <- liftIO V.newKey
     return $ MLApply i k f a
-  fuse refMap n e = return (e, refMap, n)
+  fuse refMap n e = fuseRemote refMap n e
+
+
 
 
 instance Indexable MExp where
@@ -139,3 +142,37 @@ analyseLocal e@(MLApply n _ f a) =
     analyseLocal a
     visitLocalM e
 
+
+
+--combineClosure :: forall a b c  m. (MonadIO m) => ExpClosure MExp a b -> ExpClosure MExp b c -> StateT (Int, Bool) m (ExpClosure MExp a c)
+combineClosure counter (ExpClosure cf f) (ExpClosure cg g)  = do
+  (cfg, counter') <- combineFreeVars counter cf cg
+  let cs = ExpClosure cfg (\(cf', cg') a -> do
+              r1 <- f cf' a
+              g cg' r1)
+  return (cs, counter')
+
+--combineFreeVars :: (MonadIO m) => MExp 'Local a -> MExp 'Local b -> StateT (Int, Bool) m (MExp 'Local (a, b))
+combineFreeVars counter cf cg = do
+    k1 <- liftIO $ V.newKey
+    let f = MLConst counter k1 (,)
+    k2 <- liftIO $ V.newKey
+    let a = MLApply (counter+1) k2 f cf
+    k3 <- liftIO $ V.newKey
+    let b = MLApply (counter+2) k3 a cg
+    return (b, counter+3)
+
+
+
+fuseRemote :: (MonadIO m) => GenericInfoMap () -> Int -> MExp 'Remote a -> m (MExp 'Remote a, GenericInfoMap (), Int)
+fuseRemote infos counter oe@(MRApply ne g ie) | refCountInner > 1 =
+    return (oe, infos, counter)
+    where
+    refCountInner = refCount (getRemoteIndex ie) infos
+
+fuseRemote infos counter (MRApply ne g (MRApply ni f e)) = do
+    (fg, counter') <- combineClosure counter f g
+    return (MRApply ne fg e, infos, counter')
+
+
+fuseRemote infos counter oe = return (oe, infos, counter)

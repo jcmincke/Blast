@@ -249,9 +249,9 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
   runComputation (MkRpcConfig (MkConfig {..}) _ _)  n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
     let program = expGen seed
-    (refMap, count) <- generateReferenceMap 0 M.empty program
+    (refMap, _) <- generateReferenceMap 0 M.empty program
 --  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
-    (e::MExp 'Local (a,b)) <- build False refMap (0::Int) (1000::Int) program
+    (e::MExp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) (1000::Int) program
 
  --   ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
     infos <- execStateT (Ma.analyseLocal e) M.empty

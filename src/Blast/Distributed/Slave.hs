@@ -51,7 +51,7 @@ runCommand ls@(MkLocalSlave {..}) (LsReqReset  bs) = do
     Right a -> do
       let program = expGen a
       (refMap, count) <- generateReferenceMap 0 M.empty program
-      (e::SExp 'Local (a,b)) <- build False refMap (0::Int) (1000::Int) program
+      (e::SExp 'Local (a,b)) <- build (shouldOptimize config) refMap (0::Int) (1000::Int) program
 
 --      ((e::SExp 'Local (a,b)), _) <- runStateT (expGen a) 0
       infos' <- execStateT (analyseLocal e) M.empty
