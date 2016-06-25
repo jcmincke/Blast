@@ -24,7 +24,6 @@ import            Control.DeepSeq
 import            Control.Monad
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
-import            Control.Monad.Operational
 import            Control.Monad.Trans.State
 
 import qualified  Data.Map as M
@@ -49,8 +48,7 @@ runRec :: forall a b m s.
 runRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   let program = expGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
---  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
-  (e::MExp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) (1000::Int) program
+  (e::MExp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) count program
   infos <- execStateT (Ma.analyseLocal e) M.empty
   s' <- liftIO $ setSeed s seed
   ((a, b), _) <- evalStateT (runLocal e) (s', V.empty, infos)

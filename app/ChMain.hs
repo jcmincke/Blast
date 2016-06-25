@@ -2,6 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 
 module Main where
@@ -96,6 +97,16 @@ expGenerator2 (a::Int) = do
       rf <- ((,) <$$> a' <**> a1)
       return rf
 
+expGenerator4 (a::Int) = do
+      r1 <- rconst [ i| i <- [1..10::Int]]
+      r2 <- rmap (fun ((+) 2)) r1
+      r3 <- rmap (fun ((+) 3)) r2
+      r4 <- rmap (fun ((+) 5)) r3
+      a0 <- collect r4
+      a' <- lconst (a+1)
+      r <- ((,) <$$> a' <**> a0)
+      return r
+
 
 reporting a b = do
   putStrLn "Reporting"
@@ -104,11 +115,11 @@ reporting a b = do
   putStrLn "End Reporting"
   return a
 
-jobDesc = MkJobDesc 0 expGenerator reporting (\_ x _  -> True)
+jobDesc = MkJobDesc 0 expGenerator4 reporting (\_ x _  -> True)
 
 
-rloc = do
-  let cf = MkConfig False 1.0
+rloc shouldOptimize = do
+  let cf = MkConfig shouldOptimize 1.0
   s <- runStdoutLoggingT $ Loc.createController cf 1 jobDesc
   (a,b) <- runStdoutLoggingT $ Loc.runRec cf s jobDesc
   print a

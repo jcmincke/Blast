@@ -60,18 +60,13 @@ runRec shouldOptimize (jobDesc@MkJobDesc {..}) = do
   let program = expGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
   liftIO $ print refMap
---  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
-  !(e::Exp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) (1000::Int) program
---  (e::Exp 'Local (a,b)) <- build (expGen seed)
-  liftIO $ print "start"
+  !(e::Exp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) count program
   (a,b) <- liftIO $ runLocal e
-  liftIO $ print "end"
   a' <- liftIO $ reportingAction a b
   case recPredicate a a' b of
     True -> do
       return (a', b)
     False -> do
-      liftIO $ print "cnt"
       runRec shouldOptimize (jobDesc {seed = a'})
 
 

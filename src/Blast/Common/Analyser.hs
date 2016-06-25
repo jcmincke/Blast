@@ -10,7 +10,7 @@ where
 --import Debug.Trace
 
 import            Control.DeepSeq
-import            Control.Lens (set, view, makeLenses)
+import            Control.Lens (set)
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 import            Data.Binary (Binary)
@@ -49,9 +49,9 @@ referenceM :: forall i m. MonadLoggerIO m =>
 referenceM parent child = do
   $(logInfo) $ T.pack ("Parent node "++show parent ++ " references child node " ++ show child)
   m <- get
-  put (reference m)
+  put (doReference m)
   where
-  reference m =
+  doReference m =
     case M.lookup child m of
     Just inf@(GenericInfo old _) -> M.insert child (set refs (S.insert parent old) inf) m
     Nothing -> error $  ("Node " ++ show child ++ " is referenced before being visited")
