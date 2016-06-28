@@ -67,6 +67,7 @@ data Controller a = MkController {
   slaveChannels :: M.Map Int RemoteChannels
   , seedM :: Maybe a
   , config :: Config
+  , statefullSlaveMode :: Bool
 }
 
 randomSlaveReset :: (S.Serialize a) => Controller a -> Int -> IO ()
@@ -77,6 +78,7 @@ randomSlaveReset s@(MkController {config = MkConfig {..}}) slaveId = do
 
 
 instance (S.Serialize a) => CommandClass Controller a where
+  statefullSlaveMode (MkController{ statefullSlaveMode = mode }) = mode
   getNbSlaves (MkController {..}) = M.size slaveChannels
   status (MkController {..}) slaveId = do
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
@@ -158,7 +160,7 @@ createController :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO)
       -> m (Controller a)
 createController cf@(MkConfig {..}) nbSlaves (MkJobDesc {..}) = do
   m <- liftIO $ foldM proc M.empty [0..nbSlaves-1]
-  return $ MkController m Nothing cf
+  return $ MkController m Nothing cf statefullSlaves
   where
 --  expGen' a = build $ expGen a
   proc acc i = do

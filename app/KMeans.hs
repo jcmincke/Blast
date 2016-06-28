@@ -120,8 +120,8 @@ jobDesc :: JobDesc ([Point], Double) [Point]
 jobDesc = MkJobDesc ([(0, 0), (1, 1)], 1000.0) (expGenerator 1000) reporting (criterion 0.1)
 
 
-rloc = do
-  let cf = MkConfig False 1.0
+rloc optimize = do
+  let cf = defaultConfig { shouldOptimize = optimize }
   s <- logger $ Loc.createController cf 4 jobDesc
   (a,b) <- logger $ Loc.runRec cf s jobDesc
   print a
@@ -141,7 +141,7 @@ reporting a b = do
 
 rpcConfigAction = return $
   MkRpcConfig
-    (MkConfig False 1.0)
+    (defaultConfig { shouldOptimize = False })
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 

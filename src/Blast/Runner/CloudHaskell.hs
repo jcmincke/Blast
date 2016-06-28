@@ -128,7 +128,8 @@ data RpcState a = MkRpcState {
   rpcSlaves :: M.Map Int SlaveInfo
   -- not sure we should store it there since it is in the job desc
   , rpcSeed :: Maybe a
-}
+  , statefullSlaveMode :: Bool
+  }
 
 
 rpcCall :: forall a. (S.Serialize a ) => RpcState a -> Int -> LocalSlaveRequest -> IO LocalSlaveResponse
@@ -145,6 +146,7 @@ rpcCall (MkRpcState {..}) slaveIdx request = do
 
 
 instance (S.Serialize a) => CommandClass RpcState a where
+  statefullSlaveMode (MkRpcState{ statefullSlaveMode = mode }) = mode
   getNbSlaves (MkRpcState {..}) = M.size rpcSlaves
   status rpc@(MkRpcState {..}) slaveId = do
     (LsRespBool b) <- rpcCall rpc slaveId LsReqStatus
@@ -209,7 +211,7 @@ startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, CommandClass RpcSta
   -> Backend
   -> [NodeId]
   -> Process ()
-startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc slaveClosure k backend _ = do
+startClientRpc rpcConfig@(MkRpcConfig config (MkMasterConfig logger) _) theJobDesc slaveClosure k backend _ = do
   loop 0 theJobDesc
   where
   mkSlaveInfo i nodeId = do
@@ -234,7 +236,7 @@ startClientRpc rpcConfig@(MkRpcConfig _ (MkMasterConfig logger) _) theJobDesc sl
         let slaveInfoMap = M.fromList slaveInfos
         -- create processes that handle RPC
         mapM_ (\slaveInfo -> spawnLocal (startOneClientRpc slaveInfo slaveClosure)) $ M.elems slaveInfoMap
-        let rpcState = MkRpcState slaveInfoMap Nothing
+        let rpcState = MkRpcState slaveInfoMap Nothing (statefullSlaves config)
         (a, b) <- liftIO $ do logger $ runComputation rpcConfig 0 rpcState jobDesc
         liftIO $ stop rpcState
         a' <- liftIO $ reportingAction a b

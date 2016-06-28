@@ -118,8 +118,8 @@ reporting a b = do
 jobDesc = MkJobDesc 0 expGenerator4 reporting (\_ x _  -> True)
 
 
-rloc shouldOptimize = do
-  let cf = MkConfig shouldOptimize 1.0
+rloc optimize = do
+  let cf = defaultConfig { shouldOptimize = optimize }
   s <- runStdoutLoggingT $ Loc.createController cf 1 jobDesc
   (a,b) <- runStdoutLoggingT $ Loc.runRec cf s jobDesc
   print a
@@ -129,7 +129,7 @@ rloc shouldOptimize = do
 
 rpcConfigAction = return $
   MkRpcConfig
-    (MkConfig False 1.0)
+    (defaultConfig {shouldOptimize = False})
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 

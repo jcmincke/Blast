@@ -27,6 +27,7 @@ import            Blast.Common.Analyser
 type RemoteClosureIndex = Int
 
 class (S.Serialize x) => CommandClass s x where
+  statefullSlaveMode :: s x -> Bool
   getNbSlaves :: s x -> Int
   status ::  s x -> Int -> IO Bool
   exec :: s x -> Int -> RemoteClosureIndex -> IO RemoteClosureResult
@@ -36,7 +37,7 @@ class (S.Serialize x) => CommandClass s x where
   reset :: s x -> Int -> IO ()
   setSeed :: s x -> x -> IO (s x)
   stop :: s x -> IO ()
-
+  batch :: (S.Serialize a) => s x -> [LocalSlaveRequest] -> IO (Either String a)
 
 
 data LocalSlaveRequest =

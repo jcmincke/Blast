@@ -206,8 +206,11 @@ data Config = MkConfig
   {
     shouldOptimize :: Bool
     , slaveAvailability :: Float
+    , statefullSlaves :: Bool
   }
 
+defaultConfig :: Config
+defaultConfig = MkConfig True 1.0 True
 
 -- instances
 

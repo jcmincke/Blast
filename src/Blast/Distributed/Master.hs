@@ -69,8 +69,8 @@ dereference parent child = do
     else error ("Remove parent reference twice for parent "++show parent ++" and child "++show child)
 
 
-runRemoteOneSlave ::(CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
-runRemoteOneSlave slaveId oe@(MRApply n (ExpClosure ce _) e) = do
+runRemoteOneSlaveStatefull ::(CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
+runRemoteOneSlaveStatefull slaveId oe@(MRApply n (ExpClosure ce _) e) = do
   s <- getRemote
   r <- liftIO $ exec s slaveId n
   case r of
@@ -85,15 +85,15 @@ runRemoteOneSlave slaveId oe@(MRApply n (ExpClosure ce _) e) = do
           let ceId = getLocalIndex ce
           let csBs = p Vc.! slaveId
           _ <- liftIO $ cache s slaveId ceId csBs
-          runRemoteOneSlave slaveId oe
+          runRemoteOneSlaveStatefull slaveId oe
     RemCsResCacheMiss CachedArg -> do
-      runRemoteOneSlave slaveId e
-      runRemoteOneSlave slaveId oe
+      runRemoteOneSlaveStatefull slaveId e
+      runRemoteOneSlaveStatefull slaveId oe
       -- todo uncache e if should not be cached
     ExecRes -> return ()
     ExecResError err -> error ( "remote call: " ++ err)
 
-runRemoteOneSlave slaveId (MRConst n key _) = do
+runRemoteOneSlaveStatefull slaveId (MRConst n key _) = do
   s <- getRemote
   vault <- getVault
   case V.lookup key vault of
@@ -156,11 +156,20 @@ unCacheLocal e = do
   -- todo error handling
   return ()
 
-
-runRemote ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m ()
-runRemote oe@(MRApply n (ExpClosure ce _) e) = do
+runRemote ::(CommandClass s x, MonadLoggerIO m, S.Serialize a, UnChunkable a) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m a
+runRemote e = do
+  prepareRunRemote e
   s <- getRemote
-  runRemote e
+  case statefullSlaveMode s of
+    True -> do
+      doRunRemoteStatefull e
+      fetchResults e
+    False -> doRunRemoteStateless e
+
+doRunRemoteStatefull ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m ()
+doRunRemoteStatefull oe@(MRApply n (ExpClosure ce _) e) = do
+  s <- getRemote
+  doRunRemoteStatefull e
   cp <- runLocal ce
   case cp of
     (_, Just _) -> return ()
@@ -173,9 +182,9 @@ runRemote oe@(MRApply n (ExpClosure ce _) e) = do
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
   st <- get
-  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlave slaveId oe) st) slaveIds
+  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlaveStatefull slaveId oe) st) slaveIds
 
-  -- dereference children and clenup remote cache if necessary
+  -- dereference children and cleanup remote cache if necessary
   cleanupCacheE <- dereference n (getRemoteIndex e)
   when cleanupCacheE $ do unCacheRemote e
 
@@ -184,7 +193,7 @@ runRemote oe@(MRApply n (ExpClosure ce _) e) = do
   return ()
 
 
-runRemote e@(MRConst _ key a) = do
+doRunRemoteStatefull e@(MRConst _ key a) = do
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
@@ -193,9 +202,30 @@ runRemote e@(MRConst _ key a) = do
   let vault' = V.insert key partition vault
   setVault vault'
   st <- get
-  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlave slaveId e) st) slaveIds
+  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlaveStatefull slaveId e) st) slaveIds
   return ()
 
+doRunRemoteStateless ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m a
+doRunRemoteStateless = undefined
+
+-- evaluate all local values (captured in closures)
+prepareRunRemote ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m ()
+prepareRunRemote oe@(MRApply n (ExpClosure ce _) e) = do
+  s <- getRemote
+  prepareRunRemote e
+  cp <- runLocal ce
+  case cp of
+    (_, Just _) -> return ()
+    (c, Nothing) -> do
+        let nbSlaves = getNbSlaves s
+        let partition = fmap S.encode $ chunk' nbSlaves c
+        vault <- getVault
+        let key = getLocalVaultKey ce
+        setVault (V.insert key (c, Just partition) vault)
+  return ()
+
+
+prepareRunRemote e@(MRConst _ key a) = return ()
 
 runLocal ::(CommandClass s x, MonadLoggerIO m) => MExp 'Local a -> StateT (s x, V.Vault, InfoMap) m (a, Maybe (Partition BS.ByteString))
 runLocal (MLConst _ key a) = do
@@ -213,8 +243,7 @@ runLocal (MCollect n key e) = do
   case cvm of
     Just a -> return a
     Nothing -> do
-      runRemote e
-      a <- fetchResults e
+      a <- runRemote e
       vault' <- getVault
       setVault (V.insert key (a, Nothing) vault')
 

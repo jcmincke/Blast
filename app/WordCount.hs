@@ -93,9 +93,9 @@ expGenerator nbFiles () = do
 jobDesc = MkJobDesc () (expGenerator 8) reporting (\_ _ _ -> True)
 
 
-rloc:: IO ()
-rloc = do
-  let cf = MkConfig False 1.0
+rloc:: Bool -> IO ()
+rloc optimize = do
+  let cf = defaultConfig { shouldOptimize = optimize }
   s <- logger $ Loc.createController cf 4 jobDesc
   (a,b) <- logger $ Loc.runRec cf s jobDesc
   print a
@@ -116,7 +116,7 @@ reporting a b = do
 
 rpcConfigAction = return $
   MkRpcConfig
-    (MkConfig False 1.0)
+    (defaultConfig { shouldOptimize = False })
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 
