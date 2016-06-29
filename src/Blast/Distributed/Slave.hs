@@ -17,6 +17,7 @@ module Blast.Distributed.Slave
 where
 
 --import Debug.Trace
+import            Control.Monad
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import            Control.Monad.Operational
@@ -95,5 +96,13 @@ runCommand ls (LsReqFetch i) = do
       Just (GenericInfo _ (NtRConst (MkRConstInfo _ _ (Just cacheReaderFun)))) -> do
         return (LsFetch $ cacheReaderFun (vault ls), ls)
       _ -> return $ (LsFetch Nothing, ls)
-
+runCommand ls (LsReqBatch nRes requests) = do
+  ls' <- foldM (\acc req -> do  (r, acc') <- runCommand acc req
+                                return acc') ls requests
+  -- fetch results
+  (res, ls'') <- runCommand ls' (LsReqFetch nRes)
+  case res of
+    (LsFetch (Just r)) -> return $ (LsRespBatch (Right r), ls'')
+    (LsFetch Nothing) -> return $ (LsRespBatch (Left "Batch: could not read results"), ls'')
+    _ -> return $ (LsRespBatch (Left "Batch: bad response"), ls'')
 

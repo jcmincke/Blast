@@ -24,6 +24,7 @@ import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 
 import qualified  Data.ByteString as BS
+import qualified  Data.List as L
 import qualified  Data.Map as M
 import qualified  Data.Serialize as S
 import qualified  Data.Set as S
@@ -101,6 +102,33 @@ runRemoteOneSlaveStatefull slaveId (MRConst n key _) = do
       let bs = partition Vc.! slaveId
       _ <- liftIO $ cache s slaveId n bs
       return ()
+    Nothing ->  error ("MRConst value not cached"::String)
+
+
+
+runRemoteOneSlaveStateless ::(CommandClass s x, MonadIO m) => Int -> [LocalSlaveRequest] -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m [LocalSlaveRequest]
+runRemoteOneSlaveStateless slaveId requests (MRApply n (ExpClosure ce _) e) = do
+  requests' <- runRemoteOneSlaveStateless slaveId requests e
+  -- caching value of ce
+  vault <- getVault
+  let keyce = getLocalVaultKey ce
+  let cem = V.lookup keyce vault
+  case cem of
+    Nothing -> error "local value not cached while executing remote on one slave"
+    Just (_, Nothing) -> error "local value not cached (BS) while executing remote on one slave"
+    Just (_, Just p) -> do
+      let ceId = getLocalIndex ce
+      let csBs = p Vc.! slaveId
+      return (LsReqExecute n : LsReqCache ceId csBs : requests')
+
+runRemoteOneSlaveStateless slaveId requests (MRConst n key _) = do
+  s <- getRemote
+  vault <- getVault
+  case V.lookup key vault of
+    Just partition -> do
+      let bs = partition Vc.! slaveId
+      _ <- liftIO $ cache s slaveId n bs
+      return (LsReqCache n bs : requests)
     Nothing ->  error "MRConst value not cached"
 
 
@@ -160,7 +188,7 @@ runRemote ::(CommandClass s x, MonadLoggerIO m, S.Serialize a, UnChunkable a) =>
 runRemote e = do
   prepareRunRemote e
   s <- getRemote
-  case statefullSlaveMode s of
+  case isStatefullSlave s of
     True -> do
       doRunRemoteStatefull e
       fetchResults e
@@ -205,12 +233,34 @@ doRunRemoteStatefull e@(MRConst _ key a) = do
   _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlaveStatefull slaveId e) st) slaveIds
   return ()
 
-doRunRemoteStateless ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m a
-doRunRemoteStateless = undefined
+doRunRemoteStateless ::(CommandClass s x, MonadLoggerIO m, S.Serialize a, UnChunkable a)
+  => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m a
+doRunRemoteStateless oe@(MRApply n _ _) = do
+  s <- getRemote
+  let nbSlaves = getNbSlaves s
+  let slaveIds = [0 .. nbSlaves - 1]
+  st <- get
+  rs <- liftIO $ mapConcurrently (\slaveId -> evalStateT (proc slaveId) st) slaveIds
+  return $ unChunk rs
+  where
+  proc slaveId = do
+    requests <- runRemoteOneSlaveStateless slaveId [] oe
+    -- fetch the results
+    let requests' = L.reverse requests
+    s <- getRemote
+    aE <- liftIO $ batch s slaveId n requests'
+    case aE of
+      Right r -> return r
+      Left e -> error e
+
+doRunRemoteStateless (MRConst _ _ a) = return a
+
+
 
 -- evaluate all local values (captured in closures)
+-- partition and cache MRConst's
 prepareRunRemote ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m ()
-prepareRunRemote oe@(MRApply n (ExpClosure ce _) e) = do
+prepareRunRemote (MRApply _ (ExpClosure ce _) e) = do
   s <- getRemote
   prepareRunRemote e
   cp <- runLocal ce
@@ -225,7 +275,14 @@ prepareRunRemote oe@(MRApply n (ExpClosure ce _) e) = do
   return ()
 
 
-prepareRunRemote e@(MRConst _ key a) = return ()
+prepareRunRemote (MRConst _ key a) = do
+  s <- getRemote
+  vault <- getVault
+  let nbSlaves = getNbSlaves s
+  let partition = fmap S.encode $ chunk nbSlaves a
+  let vault' = V.insert key partition vault
+  setVault vault'
+  return ()
 
 runLocal ::(CommandClass s x, MonadLoggerIO m) => MExp 'Local a -> StateT (s x, V.Vault, InfoMap) m (a, Maybe (Partition BS.ByteString))
 runLocal (MLConst _ key a) = do

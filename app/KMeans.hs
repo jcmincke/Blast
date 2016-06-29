@@ -95,7 +95,7 @@ deltaCenter centers =
   r = maximum l
   l = L.map (\(p1, p2) -> sqrt $  dist p1 p2) $ M.toList centers
 
-expGenerator :: Int -> Computation ([Point], Double) [Point]
+expGenerator :: Int -> ([Point], Double) -> LocalComputation (([Point], Double), [Point])
 expGenerator nbPoints (centers, var) = do
 --      let nbPoints = V.length points
       range <- rconst $ Range 0 nbPoints
@@ -120,8 +120,8 @@ jobDesc :: JobDesc ([Point], Double) [Point]
 jobDesc = MkJobDesc ([(0, 0), (1, 1)], 1000.0) (expGenerator 1000) reporting (criterion 0.1)
 
 
-rloc optimize = do
-  let cf = defaultConfig { shouldOptimize = optimize }
+rloc statefull = do
+  let cf = defaultConfig { statefullSlaves = statefull }
   s <- logger $ Loc.createController cf 4 jobDesc
   (a,b) <- logger $ Loc.runRec cf s jobDesc
   print a

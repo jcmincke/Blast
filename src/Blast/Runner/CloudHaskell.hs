@@ -146,7 +146,7 @@ rpcCall (MkRpcState {..}) slaveIdx request = do
 
 
 instance (S.Serialize a) => CommandClass RpcState a where
-  statefullSlaveMode (MkRpcState{ statefullSlaveMode = mode }) = mode
+  isStatefullSlave (MkRpcState{ statefullSlaveMode = mode }) = mode
   getNbSlaves (MkRpcState {..}) = M.size rpcSlaves
   status rpc@(MkRpcState {..}) slaveId = do
     (LsRespBool b) <- rpcCall rpc slaveId LsReqStatus
@@ -200,7 +200,12 @@ instance (S.Serialize a) => CommandClass RpcState a where
       -- todo add error management
       return ()
       ) slaveInfos
-
+  batch rpc@(MkRpcState {..}) slaveId nRet requests = do
+    let req = LsReqBatch nRet (LsReqReset (S.encode $ fromJust rpcSeed) : requests)
+    (LsRespBatch rE) <- rpcCall rpc slaveId req
+    case rE of
+      Right bs -> return $ S.decode bs
+      Left e -> error ("batch, slave "++show slaveId ++ " " ++ e)
 
 
 startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, CommandClass RpcState a) =>

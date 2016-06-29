@@ -37,9 +37,12 @@ $(Lens.makeLenses ''GenericInfo)
 
 type GenericInfoMap i = M.Map Int (GenericInfo i)
 
-type Computation a b = forall e m. (Monad m, Builder m e) =>
-  a -> Control.Monad.Operational.ProgramT (Syntax m) m (e 'Local (a, b))
+type Computation (k::Kind) a = forall e m. (Monad m, Builder m e) =>
+    Control.Monad.Operational.ProgramT (Syntax m) m (e k a)
 
+type LocalComputation a =  Computation 'Local a
+
+type RemoteComputation a = Computation 'Remote a
 
 data Kind = Remote | Local
 
@@ -161,7 +164,7 @@ generateReferenceMap counter refMap p = do
       let refMap'' = reference counter (getIndex f) refMap'
       let refMap''' = reference counter (getIndex a) refMap''
       generateReferenceMap (counter+1) refMap''' (is e)
-    eval (Return a) = return (refMap, counter)
+    eval (Return _) = return (refMap, counter)
 
 
 

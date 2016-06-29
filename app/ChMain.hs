@@ -15,6 +15,7 @@ import            Control.Monad.IO.Class
 import            Control.Monad.Operational
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
+import qualified  Data.Serialize as S
 import            Data.Traversable
 import qualified  Data.Vault.Strict as V
 
@@ -25,12 +26,108 @@ import            Control.Distributed.Process.Closure (mkClosure, remotable)
 import            System.Environment (getArgs)
 
 import            Blast
+import            Blast.Runner.Simple as BRS
 import qualified  Blast.Runner.Simple as S
 import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH
 
+--c1 :: (Monad m, Builder m e) =>
+--   ProgramT (Syntax m) m (e 'Local [Int])
+c1 :: LocalComputation  [Int]
+c1 = do
+      r1 <- rconst [ (2::Int)| _ <- [1..10::Int]]
+      a1 <- collect r1
+      return a1
+
+c10 :: RemoteComputation [Int]
+c10 = do
+    r1 <- rconst [ (2::Int)| _ <- [1..10::Int]]
+    r2 <- rmap (fun ((+) 1)) r1
+    return r2
+
+c11 :: RemoteComputation [Int] -> Int -> LocalComputation (Int, Int)
+c11 c a = do
+      r2 <- c
+      zero <- lconst (0::Int)
+      c1 <- lconst (0 ::Int)
+      a2 <- rfold' (foldClosure c1 (const (+))) sum zero r2
+      one <- lconst (1::Int)
+      ar2 <- collect r2
+      x <- return 8
+      a3 <- lfold' (*) one ar2
+      a' <- lconst (a+1)
+      r <- ((,) <$$> a' <**> a2)
+      return r
+
+rr :: Int ->  LocalComputation (Int, Int)
+rr = c11 c10
+
+expg
+  :: (Monad m, Builder m e) =>
+     ProgramT (Syntax m) m (e 'Local a) -> () -> ProgramT (Syntax m) m (e 'Local ((), a))
+expg c1 () = do
+  r <- c1
+  (\v -> ((),v)) <$$> r
+
+jobDesc2 :: JobDesc () [Int]
+jobDesc2 = MkJobDesc () (expg c1) (\_ _ -> return ()) (\_ _ _ -> True)
+
+t :: (MonadLoggerIO m) =>  ProgramT (Syntax m) m (e 'Local [Int]) -> m [Int]
+t computation =  do
+  (_, r) <- BRS.runRec True jd
+  return r
+  where
+
+jd :: JobDesc () [Int]
+jd = MkJobDesc () (expg c1) (\() _ -> return ()) (\() () _ -> True)
+
+
+--  computation = c1
+{-
+
+runOnce :: forall a e m.(Monad m, Builder m e, MonadLoggerIO m) =>
+  Bool -> ProgramT (Syntax m) m (e 'Local a) ->  m () -- ProgramT (Syntax m) m (e 'Local ((), a))
+runOnce shouldOptimize computation = do
+  (_, r) <- BRS.runRec shouldOptimize jobDesc2
+  return ()
+  where
+  --jobDesc2 :: JobDesc () a
+  jobDesc2 = MkJobDesc () (expg computation) (\() _ -> return ()) (\() () _ -> True)
+
+
+runOnce :: forall a e m.(Monad m, Builder m e, MonadLoggerIO m) => Bool -> ProgramT (Syntax m) m (e 'Local a) -> m ()
+runOnce shouldOptimize computation = do
+--  (_, r) <- runRec shouldOptimize jobDesc
+  return ()
+  where
+  expGen :: () -> ProgramT (Syntax m) m (e 'Local ((), a))
+  expGen () = do
+    a <- computation
+    (\v -> ((),v)) <$$> a
+  jobDesc :: JobDesc () a
+  jobDesc = MkJobDesc () expGen (\_ _ -> return ()) (\_ _ _ -> True)
+expg () = do
+  r <- c1
+  (\v -> ((),v)) <$$> r
+
+-}
+
 
 {-
+
+
+runOnce :: forall a e m.(Builder m e, MonadLoggerIO m) => Bool -> ProgramT (Syntax m) m (e 'Local a) -> m ()
+runOnce shouldOptimize computation = do
+--  (_, r) <- runRec shouldOptimize jobDesc
+  return ()
+  where
+  expGen :: () -> ProgramT (Syntax m) m (e 'Local ((), a))
+  expGen () = do
+    a <- computation
+    (\v -> ((),v)) <$$> a
+  jobDesc :: JobDesc () a
+  jobDesc = MkJobDesc () expGen (\_ _ -> return ()) (\_ _ _ -> True)
+
 expGenerator a = do
       r1 <- cstRdd [1..100000::Int]
       r2 <- smap r1 $ fun ((+) a)
@@ -52,11 +149,13 @@ fib 1 = 1
 fib 2 = 3
 fib n = fib (n-1) + fib (n-2)
 
+r1c :: (Builder m e) =>
+   ProgramT (Syntax m) m (e 'Remote [Int])
+r1c = rconst [ (2::Int)| _ <- [1..10::Int]]
 
-
---expGenerator :: Computation Int Int
+--expGenerator :: Int -> Computation Int Int
 expGenerator (a::Int) = do
-      r1 <- rconst [ 2| _ <- [1..10::Int]]
+      r1 <- r1c
       r2 <- rmap (fun fib) r1
       zero <- lconst (0::Int)
       c1 <- lconst (0 ::Int)
@@ -118,8 +217,8 @@ reporting a b = do
 jobDesc = MkJobDesc 0 expGenerator4 reporting (\_ x _  -> True)
 
 
-rloc optimize = do
-  let cf = defaultConfig { shouldOptimize = optimize }
+rloc statefull = do
+  let cf = defaultConfig { statefullSlaves = statefull }
   s <- runStdoutLoggingT $ Loc.createController cf 1 jobDesc
   (a,b) <- runStdoutLoggingT $ Loc.runRec cf s jobDesc
   print a

@@ -54,12 +54,10 @@ instance Indexable Exp where
   getIndex (Collect n _) = n
   getIndex (LApply n _ _) = n
 
-
 runRec :: forall a b m.(Builder m Exp, MonadLoggerIO m) => Bool -> JobDesc a b -> m (a, b)
 runRec shouldOptimize (jobDesc@MkJobDesc {..}) = do
   let program = expGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
-  liftIO $ print refMap
   !(e::Exp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) count program
   (a,b) <- liftIO $ runLocal e
   a' <- liftIO $ reportingAction a b

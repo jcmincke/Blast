@@ -27,7 +27,7 @@ import            Blast.Common.Analyser
 type RemoteClosureIndex = Int
 
 class (S.Serialize x) => CommandClass s x where
-  statefullSlaveMode :: s x -> Bool
+  isStatefullSlave :: s x -> Bool
   getNbSlaves :: s x -> Int
   status ::  s x -> Int -> IO Bool
   exec :: s x -> Int -> RemoteClosureIndex -> IO RemoteClosureResult
@@ -37,7 +37,7 @@ class (S.Serialize x) => CommandClass s x where
   reset :: s x -> Int -> IO ()
   setSeed :: s x -> x -> IO (s x)
   stop :: s x -> IO ()
-  batch :: (S.Serialize a) => s x -> [LocalSlaveRequest] -> IO (Either String a)
+  batch :: (S.Serialize a) => s x -> Int -> Int -> [LocalSlaveRequest] -> IO (Either String a)
 
 
 data LocalSlaveRequest =
@@ -47,15 +47,17 @@ data LocalSlaveRequest =
   |LsReqUncache Int
   |LsReqFetch Int
   |LsReqReset BS.ByteString
+  |LsReqBatch Int [LocalSlaveRequest]
   deriving (Generic)
 
 instance Show LocalSlaveRequest where
-  show (LsReqExecute _) = "LsReqExecute"
-  show (LsReqCache _ _) = "LsReqCache"
-  show (LsReqUncache  _) = "LsReqUncache"
-  show (LsReqFetch  _) = "LsReqFetch"
+  show (LsReqExecute n) = "LsReqExecute "++ show n
+  show (LsReqCache n _) = "LsReqCache "++ show n
+  show (LsReqUncache  n) = "LsReqUncache "++ show n
+  show (LsReqFetch  n) = "LsReqFetch "++ show n
   show (LsReqReset _) = "LsReqReset"
   show (LsReqStatus) = "LsReqStatus"
+  show (LsReqBatch n _) = "LsReqBatch "++ show n
 
 data LocalSlaveExecuteResult =
   LsExecResCacheMiss Int
@@ -70,14 +72,16 @@ data LocalSlaveResponse =
   |LsRespVoid
   |LsFetch (Maybe BS.ByteString)
   |LocalSlaveExecuteResult RemoteClosureResult
+  |LsRespBatch (Either String BS.ByteString)
   deriving (Generic)
 
 instance Show LocalSlaveResponse where
-  show (LsRespBool _) = "LsRespBool"
-  show (LsRespError _) = "LsRespError"
+  show (LsRespBool b) = "LsRespBool "++show b
+  show (LsRespError e) = "LsRespError "++e
   show (LsRespVoid) = "LsRespVoid"
   show (LsFetch _) = "LsFetch"
-  show (LocalSlaveExecuteResult _) = "LocalSlaveExecuteResult"
+  show (LocalSlaveExecuteResult v) = "LocalSlaveExecuteResult "++show v
+  show (LsRespBatch _) = "LsRespBatch"
 
 
 

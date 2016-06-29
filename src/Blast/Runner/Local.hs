@@ -78,7 +78,7 @@ randomSlaveReset s@(MkController {config = MkConfig {..}}) slaveId = do
 
 
 instance (S.Serialize a) => CommandClass Controller a where
-  statefullSlaveMode (MkController{ statefullSlaveMode = mode }) = mode
+  isStatefullSlave (MkController{ statefullSlaveMode = mode }) = mode
   getNbSlaves (MkController {..}) = M.size slaveChannels
   status (MkController {..}) slaveId = do
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
@@ -103,19 +103,8 @@ instance (S.Serialize a) => CommandClass Controller a where
     writeChan iocOutChan req'
     r <- readChan iocInChan
     case r of
-      (LsRespBool b) -> return b
-      (LsRespError s) -> do
-        putStrLn $ "Erreur: " ++ s
-        return False
-      (LsRespVoid) -> do
-        putStrLn $ "LsRespVoid"
-        error "e"
-      (LsFetch _) -> do
-        putStrLn $ "LsFetch"
-        error "e"
-      (LocalSlaveExecuteResult x) -> do
-        putStrLn $ "LocalSlaveExecuteResult "++ show x
-        error "e"
+      LsRespBool b -> return b
+      _ -> error "Should not reach here"
 
 
   uncache (MkController {..}) slaveId i = do
@@ -153,7 +142,14 @@ instance (S.Serialize a) => CommandClass Controller a where
       _ <- mapConcurrently (\slaveId -> reset as slaveId) slaveIds
       return ()
   stop _ = return ()
-
+  batch s@(MkController {..}) slaveId nRet requests = do
+    let req = LsReqBatch nRet (LsReqReset (S.encode $ fromJust seedM) : requests)
+    let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
+    writeChan iocOutChan req
+    (LsRespBatch rE) <- readChan iocInChan
+    case rE of
+      Right bs -> return $ S.decode bs
+      Left e -> error ("batch, slave "++show slaveId ++ " " ++ e)
 
 createController :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>
       Config -> Int -> JobDesc a b
