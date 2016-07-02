@@ -34,7 +34,7 @@ import            Blast.Runner.CloudHaskell as CH
 
 --c1 :: (Monad m, Builder m e) =>
 --   ProgramT (Syntax m) m (e 'Local [Int])
-c1 :: LocalComputation  [Int]
+c1 :: LocalComputation [Int]
 c1 = do
       r1 <- rconst [ (2::Int)| _ <- [1..10::Int]]
       a1 <- collect r1
@@ -220,8 +220,7 @@ jobDesc = MkJobDesc 0 expGenerator4 reporting (\_ x _  -> True)
 
 rloc statefull = do
   let cf = defaultConfig { statefullSlaves = statefull }
-  s <- runStdoutLoggingT $ Loc.createController cf 1 jobDesc
-  (a,b) <- runStdoutLoggingT $ Loc.runRec cf s jobDesc
+  (a,b) <- runStdoutLoggingT $ Loc.runRec 1 cf jobDesc
   print a
   print b
 

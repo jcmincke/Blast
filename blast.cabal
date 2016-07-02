@@ -1,13 +1,14 @@
 name:                blast
 version:             0.1.0.0
-synopsis:            Initial project template from stack
+synopsis:            A distributed computing library
 description:         Please see README.md
+homepage:            https://github.com/githubuser/blast#readme
 license:             BSD3
 license-file:        LICENSE
-author:              Author name here
-maintainer:          example@example.com
-copyright:           2016 Author name here
-category:            Web
+author:              Jean-Christophe Mincke
+maintainer:          jeanchristophe.mincke@gmail.com
+copyright:           2016 Jean-Christophe Mincke
+category:            Distributed computing
 build-type:          Simple
 -- extra-source-files:
 cabal-version:       >=1.10
@@ -20,6 +21,7 @@ library
     Blast.Runner.CloudHaskell
     Blast.Runner.Local
     Blast.Runner.Simple
+    Blast.Distributed.Interface
   other-modules:
     Blast.Common.Analyser
     Blast.Distributed.Master

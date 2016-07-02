@@ -1,24 +1,53 @@
+{-|
+Module      : Blast
+Description : A distributed computing library
+Copyright   : (c) Jean-Christophe Mincke, 2016
+License     : BSD3
+Maintainer  : jeanchristophe.mincke@gmail.com
+Stability   : experimental
+Portability : POSIX
+
+-}
+
 module Blast
 (
+  -- * Types.
   Computation
   , LocalComputation
   , RemoteComputation
   , Kind (..)
   , Partition
+  , Syntax ()
+
+  -- * Classes.
+
   , Chunkable (..)
   , UnChunkable (..)
   , ChunkableFreeVar (..)
-  -- , Fun ()
-  -- , FoldFun ()
-  , Syntax ()
+
+  -- * Core syntax primitives.
   , rapply
   , rconst
   , lconst
   , collect
   , lapply
+
+  -- * Job description.
   , JobDesc (..)
   , Config (..)
   , defaultConfig
+
+    -- * Helper functions to create closures.
+  , fun
+  , closure
+  , foldFun
+  , foldClosure
+  , funIO
+  , closureIO
+  , foldFunIO
+  , foldClosureIO
+
+
 
 )
 where

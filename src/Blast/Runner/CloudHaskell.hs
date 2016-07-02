@@ -1,3 +1,13 @@
+{-|
+Module      : Blast.Syntax
+Copyright   : (c) Jean-Christophe Mincke, 2016
+License     : BSD3
+Maintainer  : jeanchristophe.mincke@gmail.com
+Stability   : experimental
+Portability : POSIX
+
+-}
+
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -49,30 +59,25 @@ import qualified  Data.Vault.Strict as V
 
 import            GHC.Generics (Generic)
 
+import            Blast
+import            Blast.Distributed.Interface
 
 
-
-import            Blast.Types
-import            Blast.Common.Analyser
-import            Blast.Master.Analyser as Ma
-import            Blast.Distributed.Types
-import            Blast.Distributed.Master
-import            Blast.Distributed.Slave
-
-
-
+-- | General configuration.
 data RpcConfig = MkRpcConfig {
-  commonConfig :: Config
-  , masterConfig :: MasterConfig
-  , slaveConfig :: SlaveConfig
+  commonConfig :: Config          -- ^ Blast configuration.
+  , masterConfig :: MasterConfig  -- ^ Specific configuration for master.
+  , slaveConfig :: SlaveConfig    -- ^ Specific configuration for slaves.
   }
 
+-- | Master configuration.
 data MasterConfig = MkMasterConfig {
-  masterLogger :: forall m a. (MonadIO m) => LoggingT m a -> m a
+  masterLogger :: forall m a. (MonadIO m) => LoggingT m a -> m a  -- ^ Logger.
   }
 
+-- | Master configuration.
 data SlaveConfig = MkSlaveConfig {
-  slaveLogger :: forall m a. (MonadIO m) => LoggingT m a -> m a
+  slaveLogger :: forall m a. (MonadIO m) => LoggingT m a -> m a   -- ^ Logger.
   }
 
 data RpcRequestControl =
@@ -98,13 +103,13 @@ instance Binary SlaveControl
 
 
 
-
+-- | Defines CloudHaskell closure.
 slaveProcess :: forall a b . (S.Serialize a, Typeable a, Typeable b) =>
                 IO RpcConfig -> JobDesc a b -> Int -> Process ()
 slaveProcess configurator (MkJobDesc {..}) slaveIdx = do
   (MkRpcConfig config _ (MkSlaveConfig {..})) <- liftIO configurator
   liftIO $ putStrLn $ "starting slave process: " ++ show slaveIdx
-  let slaveState = MkLocalSlave slaveIdx M.empty V.empty expGen config
+  let slaveState = MkLocalSlave slaveIdx M.empty V.empty computationGen config
   let (server::ProcessDefinition (LocalSlave (LoggingT IO) a b)) = defaultProcess {
       apiHandlers = [handleCall (handle slaveLogger)]
     , exitHandlers = [handleExit exitHandler]
@@ -255,13 +260,11 @@ startClientRpc rpcConfig@(MkRpcConfig config (MkMasterConfig logger) _) theJobDe
     RpcConfig -> Int -> RpcState a -> JobDesc a b -> LoggingT IO (a, b)
   runComputation (MkRpcConfig (MkConfig {..}) _ _)  n rpc (MkJobDesc {..}) = do
     liftIO $ putStrLn ("Start Iteration "++show n)
-    let program = expGen seed
+    let program = computationGen seed
     (refMap, _) <- generateReferenceMap 0 M.empty program
---  ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
-    (e::MExp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) (1000::Int) program
+    e <- build shouldOptimize refMap (0::Int) (1000::Int) program
 
- --   ((e::MExp 'Local (a,b)), _) <- runStateT (build (expGen seed)) (0::Int)
-    infos <- execStateT (Ma.analyseLocal e) M.empty
+    infos <- execStateT (analyseLocal e) M.empty
     rpc' <- liftIO $ setSeed rpc seed
     (r, _) <- evalStateT (runLocal e) (rpc', V.empty, infos)
     return r
@@ -305,14 +308,14 @@ startOneClientRpc (MkSlaveInfo {..}) slaveClosure  = do
               liftIO $ putStrLn "Terminating client process"
 
 
-
+-- | Run the computation on CloudHaskell
 runRec :: forall a b. (S.Serialize a, S.Serialize b) =>
-  RemoteTable
-  -> RpcConfig
-  -> [String]
-  -> JobDesc a b
-  -> (Int -> Closure (Process()))
-  -> (a -> b -> IO ())
+  RemoteTable                         -- ^ CloudHaskell remote table.
+  -> RpcConfig                        -- ^ Configuration.
+  -> [String]                         -- ^ Command line arguments
+  -> JobDesc a b                      -- ^ Job description.
+  -> (Int -> Closure (Process()))     -- ^ Function that takes a slave index and returns the CloudHaskell closure to execute on that slave (see "slaveProcess").
+  -> (a -> b -> IO ())                -- ^ A continuation that is called when the computation ends.
   -> IO ()
 runRec rtable rpcConfig args jobDesc slaveClosure k = do
   case args of

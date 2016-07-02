@@ -97,7 +97,7 @@ runCommand ls (LsReqFetch i) = do
         return (LsFetch $ cacheReaderFun (vault ls), ls)
       _ -> return $ (LsFetch Nothing, ls)
 runCommand ls (LsReqBatch nRes requests) = do
-  ls' <- foldM (\acc req -> do  (r, acc') <- runCommand acc req
+  ls' <- foldM (\acc req -> do  (_, acc') <- runCommand acc req
                                 return acc') ls requests
   -- fetch results
   (res, ls'') <- runCommand ls' (LsReqFetch nRes)

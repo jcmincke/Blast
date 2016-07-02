@@ -14,6 +14,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+
+
 module Blast.Types
 where
 
@@ -37,25 +39,38 @@ $(Lens.makeLenses ''GenericInfo)
 
 type GenericInfoMap i = M.Map Int (GenericInfo i)
 
-type Computation (k::Kind) a = forall e m. (Monad m, Builder m e) =>
+-- | Generic type describing a computation.
+type Computation m e (k::Kind) a =
     Control.Monad.Operational.ProgramT (Syntax m) m (e k a)
 
-type LocalComputation a =  Computation 'Local a
+-- | A computation that evaluates as a local value.
+type LocalComputation a = forall e m. (Monad m, Builder m e) => Computation m e 'Local a
 
-type RemoteComputation a = Computation 'Remote a
 
+-- | A computation that evaluates as a remote value.
+type RemoteComputation a = forall e m. (Monad m, Builder m e) => Computation m e 'Remote a
+
+-- | Kind of computation.
 data Kind = Remote | Local
 
+-- | Represents the partitioning of a remote value.
 type Partition a = Vc.Vector a
 
-
+-- | Values that can be partitionned.
 class Chunkable a where
+  -- | Given a value "a", chunk it into 'n' parts.
   chunk :: Int -> a -> Partition a
 
+-- | Values that can be reconstructed from a list of parts.
 class UnChunkable a where
+  -- | Given a list of parts, reconstruct a value.
   unChunk :: [a] -> a
 
+-- | Values that can be reconstructed from a list of parts.
+-- This applies to local values that are captured by a closure.
+-- Helps optimize the implementation of remote relational operators or more generally, remote dyadic operators.
 class ChunkableFreeVar a where
+  -- | Given a list of parts, reconstruct a value.
   chunk' :: Int -> a -> Partition a
   chunk' n a = Vc.generate n (const a)
 
@@ -90,27 +105,43 @@ data Syntax m e where
   StxCollect :: (Builder m e, UnChunkable a, S.Serialize a) => e 'Remote a -> Syntax m (e 'Local a)
   StxLApply :: (Builder m e) => e 'Local (a -> b) -> e 'Local a -> Syntax m (e 'Local b)
 
+-- | Applies a ExpClosure to remote value.
+rapply' :: (Builder m e)
+  => ExpClosure e a b
+  -> e 'Remote a
+  -> Computation m e 'Remote b
+rapply' f a = singleton (StxRApply f a)
 
-rapply :: (Builder m e) =>
-  ExpClosure e a b -> e 'Remote a -> ProgramT (Syntax m) m (e 'Remote b)
-rapply f a = singleton (StxRApply f a)
-
-rconst :: (S.Serialize a, Builder m e, Chunkable a) =>
-  a -> ProgramT (Syntax m) m (e 'Remote a)
+-- | Creates a remote value.
+rconst :: (S.Serialize a, Chunkable a) =>
+  a -> RemoteComputation a
 rconst a = singleton (StxRConst a)
 
-lconst :: (Builder m e) =>
-  a -> ProgramT (Syntax m) m (e 'Local a)
+-- | Creates a local value.
+lconst :: a -> LocalComputation a
 lconst a = singleton (StxLConst a)
 
+-- | Creates a local value from a remote value
 collect :: (S.Serialize a, Builder m e, UnChunkable a) =>
-  e 'Remote a -> ProgramT (Syntax m) m (e 'Local a)
+  e 'Remote a -> Computation m e 'Local a
 collect a = singleton (StxCollect a)
 
+-- | Applies a closure to a local value.
 lapply :: (Builder m e) =>
-  e 'Local (a -> b) -> e 'Local a -> ProgramT (Syntax m) m (e 'Local b)
+  e 'Local (a -> b) -> e 'Local a -> Computation m e 'Local b
 lapply f a = singleton (StxLApply f a)
 
+-- | Applies a closure to remote value.
+rapply :: (Monad m, Builder m e) =>
+        Fun e a b -> e 'Remote a -> Computation m e 'Remote b
+rapply fm e  = do
+  cs <- mkRemoteClosure fm
+  rapply' cs e
+  where
+  mkRemoteClosure (Pure f) = do
+    ue <- lconst ()
+    return $ ExpClosure ue (\() a -> f a)
+  mkRemoteClosure (Closure ce f) = return $ ExpClosure ce (\c a -> f c a)
 
 
 
@@ -195,23 +226,30 @@ build doOptimize refMap counter fuseCounter p = do
     eval (Return a) = return a
 
 
---data MasterSlave = M | S
-
+-- | Definition of a recursive job.
 data JobDesc a b = MkJobDesc {
+  -- | The initial value passed to the computation generator.
   seed :: a
-  , expGen :: forall e m. (Monad m, Builder m e) => a -> ProgramT (Syntax m) m (e 'Local (a, b))
+  -- | The computation generator.
+  , computationGen :: a -> LocalComputation (a, b)
+  -- | An action that is executed after each iteration.
   , reportingAction :: a -> b -> IO a
-  , recPredicate :: a -> a -> b -> Bool
+  -- | Predicate that determines whether or not to continue the computation.
+  , recPredicate  :: a -> a -> b -> Bool
   }
 
 
 data Config = MkConfig
   {
-    shouldOptimize :: Bool
-    , slaveAvailability :: Float
-    , statefullSlaves :: Bool
+    shouldOptimize :: Bool          -- ^ True to optimize the computation.
+    , slaveAvailability :: Float    -- ^ Probability of slave failure. Used in testing.
+    , statefullSlaves :: Bool       -- ^ True turns on the statefull slave mode. Slaves are stateless if False.
   }
 
+-- | Default configuration
+-- @
+-- defaultConfig = MkConfig True 1.0 True
+-- @
 defaultConfig :: Config
 defaultConfig = MkConfig True 1.0 True
 
@@ -232,3 +270,41 @@ instance Chunkable [a] where
 
 instance UnChunkable [a] where
   unChunk l = L.concat l
+
+
+
+
+
+-- | Creates a closure from a pure function.
+fun :: (a -> b) -> Fun e a b
+fun f = Pure (return . f)
+
+-- | Creates a closure from a pure function and a local value.
+closure :: (S.Serialize c, ChunkableFreeVar c) => e 'Local c -> (c -> a -> b) -> Fun e a b
+closure ce f = Closure ce (\c a -> return $ f c a)
+
+
+-- | Creates a folding closure from a pure function.
+foldFun :: (r -> a -> r) -> FoldFun e a r
+foldFun f = FoldPure (\r a -> return $ f r a)
+
+-- | Creates a folding closure from a pure function and a local value.
+foldClosure :: (S.Serialize c, ChunkableFreeVar c) => e 'Local c -> (c -> r -> a -> r) -> FoldFun e a r
+foldClosure ce f = FoldClosure ce (\c r a -> return $ f c r a)
+
+-- | Creates a closure from a impure function.
+funIO :: (a -> IO b) -> Fun k a b
+funIO f = Pure f
+
+-- | Creates a closure from a impure function and a local value.
+closureIO :: (S.Serialize c, ChunkableFreeVar c) => e 'Local c -> (c -> a -> IO b) -> Fun e a b
+closureIO ce f = Closure ce f
+
+-- | Creates a folding closure from a impure function.
+foldFunIO :: (r -> a -> IO r) -> FoldFun e a r
+foldFunIO f = FoldPure f
+
+-- | Creates a folding closure from a impure function and a local value.
+foldClosureIO :: (S.Serialize c, ChunkableFreeVar c) => e 'Local c -> (c -> r -> a -> IO r) -> FoldFun e a r
+foldClosureIO ce f = FoldClosure ce f
+

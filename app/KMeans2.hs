@@ -95,7 +95,7 @@ expGenerator :: Int -> ([Point], Double) -> LocalComputation (([Point], Double),
 expGenerator nbPoints (centers, var) = do
       range <- rconst $ Range 0 nbPoints
       centers0 <- lconst $ M.fromList $ L.map (\c -> (c, (p0, 0::Int))) centers
-      points <- rapply' (fun(\r -> L.map (\i -> ((fromIntegral i) / fromIntegral nbPoints , (fromIntegral i) / fromIntegral nbPoints)) $ rangeToList r)) range
+      points <- rapply (fun(\r -> L.map (\i -> ((fromIntegral i) / fromIntegral nbPoints , (fromIntegral i) / fromIntegral nbPoints)) $ rangeToList r)) range
 
       centerMap <- rfold' (foldFun chooseCenter) computeNewCenters centers0 points
       var' <- deltaCenter <$$> centerMap
@@ -114,8 +114,7 @@ jobDesc = MkJobDesc ([(0.0, 0.0), (1.0, 1.0)], 1000.0) (expGenerator 100) report
 rloc :: Bool -> IO ()
 rloc statefull = do
   let cf = defaultConfig { statefullSlaves = statefull }
-  s <- logger $ Loc.createController cf 1 jobDesc
-  (a,b) <- logger $ Loc.runRec cf s jobDesc
+  (a,b) <- logger $ Loc.runRec 1 cf jobDesc
   print a
   print b
   return ()

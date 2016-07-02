@@ -26,18 +26,56 @@ import            Blast.Common.Analyser
 
 type RemoteClosureIndex = Int
 
+-- | The list of primitives for master-slave communication.
 class (S.Serialize x) => CommandClass s x where
+  -- | True if slaves are statefull.
   isStatefullSlave :: s x -> Bool
+  -- | The number of slaves.
   getNbSlaves :: s x -> Int
-  status ::  s x -> Int -> IO Bool
-  exec :: s x -> Int -> RemoteClosureIndex -> IO RemoteClosureResult
-  cache :: s x -> Int -> Int -> BS.ByteString -> IO Bool
-  uncache :: s x -> Int -> Int -> IO Bool
-  fetch :: (S.Serialize a) => s x -> Int -> Int -> IO (Either String a)
-  reset :: s x -> Int -> IO ()
+  -- | Status of a slave.
+  status  :: s x
+          -> Int        -- ^ Slave index
+          -> IO Bool
+  -- | Remotely executes a closure.
+  exec  :: s x
+        -> Int                      -- ^ Slave index.
+        -> RemoteClosureIndex       -- ^ Index of the remote closure
+        -> IO RemoteClosureResult   -- ^ Result
+  -- | Remotely caches a serialized value.
+  cache :: s x
+        -> Int            -- ^ Slave index.
+        -> Int            -- ^ Node index.
+        -> BS.ByteString  -- ^ Serialized value to cache.
+        -> IO Bool
+  -- | Remotely uncaches value associated with a node.
+  uncache :: s x
+          -> Int      -- ^ Slave index.
+          -> Int      -- ^ Node index.
+          -> IO Bool
+  -- | Fetch the remote value associated with a node.
+  fetch :: (S.Serialize a)
+        => s x
+        -> Int                  -- ^ Slave index.
+        -> Int                  -- ^ Node index.
+        -> IO (Either String a)
+  -- | Reset the given slave.
+  reset :: s x
+        -> Int    -- ^ Slave index.
+        -> IO ()
+  -- | Set the computation generator seed.
   setSeed :: s x -> x -> IO (s x)
+  -- | Stops the system.
   stop :: s x -> IO ()
-  batch :: (S.Serialize a) => s x -> Int -> Int -> [LocalSlaveRequest] -> IO (Either String a)
+
+  -- | Sends a list of requests as a batch.
+  -- Returns the value associated with the given node.
+  -- Uses when slaves are stateless.
+  batch :: (S.Serialize a)
+        => s x
+        -> Int                    -- ^ Slave index.
+        -> Int                    -- ^ Node index.
+        -> [LocalSlaveRequest]    -- ^ List of requests.
+        -> IO (Either String a)   -- ^ Value associated with the specified node.
 
 
 data LocalSlaveRequest =

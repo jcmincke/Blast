@@ -100,7 +100,7 @@ expGenerator :: Int -> ([Point], Double) -> LocalComputation (([Point], Double),
 expGenerator nbPoints (centers, var) = do
 --      let nbPoints = V.length points
       range <- rconst $ Range 0 nbPoints
-      ricenters <- rapply' (funIO (proc nbPoints centers)) range
+      ricenters <- rapply (funIO (proc nbPoints centers)) range
       icenters <- collect ricenters
       centerMap <- computeNewCenters <$$> icenters
       var' <-  deltaCenter <$$> centerMap
@@ -123,8 +123,7 @@ jobDesc = MkJobDesc ([(0, 0), (1, 1)], 1000.0) (expGenerator 1000) reporting (cr
 
 rloc statefull = do
   let cf = defaultConfig { statefullSlaves = statefull }
-  s <- logger $ Loc.createController cf 4 jobDesc
-  (a,b) <- logger $ Loc.runRec cf s jobDesc
+  (a,b) <- logger $ Loc.runRec 4 cf jobDesc
   print a
   print b
   where

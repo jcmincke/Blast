@@ -73,7 +73,7 @@ reduceCharMap acc m = M.unionWith (+) acc m
 --expGenerator :: Int -> Computation () [String]
 expGenerator nbFiles () = do
       range <- rconst $ Range 1 (nbFiles+1)
-      indexes <- rapply' (fun rangeToList) range
+      indexes <- rapply (fun rangeToList) range
       filenames <- rmap (fun (\i -> "./files/wordcount/f"++show i++".txt")) indexes
       filenames' <- rflatmap (fun (\f -> L.replicate 4 f)) filenames
       sources <- rmap (fun sourceFile) filenames'
@@ -97,8 +97,7 @@ jobDesc = MkJobDesc () (expGenerator 8) reporting (\_ _ _ -> True)
 rloc:: Bool -> IO ()
 rloc optimize = do
   let cf = defaultConfig { shouldOptimize = optimize }
-  s <- logger $ Loc.createController cf 4 jobDesc
-  (a,b) <- logger $ Loc.runRec cf s jobDesc
+  (a,b) <- logger $ Loc.runRec 4 cf jobDesc
   print a
   print b
   return ()

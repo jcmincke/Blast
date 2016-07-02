@@ -1,3 +1,13 @@
+{-|
+Module      : Blast.Syntax
+Copyright   : (c) Jean-Christophe Mincke, 2016
+License     : BSD3
+Maintainer  : jeanchristophe.mincke@gmail.com
+Stability   : experimental
+Portability : POSIX
+
+-}
+
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -12,8 +22,7 @@
 
 module Blast.Runner.Local
 (
-  createController
-  , runRec
+  runRec
 )
 where
 
@@ -34,28 +43,37 @@ import qualified  Data.Vault.Strict as V
 
 import            System.Random
 
-import            Blast.Types
-import            Blast.Common.Analyser
-import            Blast.Master.Analyser as Ma
-import            Blast.Distributed.Types
-import            Blast.Distributed.Master
-import            Blast.Distributed.Slave
+import            Blast
+import            Blast.Distributed.Interface
 
 
-runRec :: forall a b m s.
-  (S.Serialize a, S.Serialize b, CommandClass s a, MonadLoggerIO m) =>
-  Config -> s a -> JobDesc a b -> m (a, b)
-runRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
-  let program = expGen seed
+-- | Runs a computation locally.
+-- Uses threads to distribute the remote computations.
+runRec :: forall a b.
+  (S.Serialize a, S.Serialize b) =>
+  Int                       -- ^ Number of slaves.
+  -> Config                 -- ^ Configuration.
+  -> JobDesc a b            -- ^ Job to execute.
+  -> LoggingT IO (a, b)     -- ^ Results.
+runRec nbSlaves config jobDesc = do
+  controller <- createController config nbSlaves jobDesc
+  doRunRec config controller jobDesc
+
+
+doRunRec :: forall a b m.
+  (S.Serialize a, S.Serialize b, MonadLoggerIO m) =>
+  Config -> Controller a -> JobDesc a b -> m (a, b)
+doRunRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
+  let program = computationGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
-  (e::MExp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) count program
-  infos <- execStateT (Ma.analyseLocal e) M.empty
+  e <- build shouldOptimize refMap (0::Int) count program
+  infos <- execStateT (analyseLocal e) M.empty
   s' <- liftIO $ setSeed s seed
   ((a, b), _) <- evalStateT (runLocal e) (s', V.empty, infos)
   a' <- liftIO $ reportingAction a b
   case recPredicate seed a' b of
     True -> return (a', b)
-    False -> runRec config s' (jobDesc {seed = a'})
+    False -> doRunRec config s' (jobDesc {seed = a'})
 
 
 data RemoteChannels = MkRemoteChannels {
@@ -142,7 +160,7 @@ instance (S.Serialize a) => CommandClass Controller a where
       _ <- mapConcurrently (\slaveId -> reset as slaveId) slaveIds
       return ()
   stop _ = return ()
-  batch s@(MkController {..}) slaveId nRet requests = do
+  batch (MkController {..}) slaveId nRet requests = do
     let req = LsReqBatch nRet (LsReqReset (S.encode $ fromJust seedM) : requests)
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
     writeChan iocOutChan req
@@ -167,7 +185,7 @@ createController cf@(MkConfig {..}) nbSlaves (MkJobDesc {..}) = do
   createOneSlave slaveId infos = do
     iChan <- newChan
     oChan <- newChan
-    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty expGen cf)
+    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty computationGen cf)
 
 
 runSlave :: (S.Serialize a) => Chan LocalSlaveRequest -> Chan LocalSlaveResponse -> LocalSlave (LoggingT IO) a b -> IO ()

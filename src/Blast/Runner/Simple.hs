@@ -1,3 +1,13 @@
+{-|
+Module      : Blast.Syntax
+Copyright   : (c) Jean-Christophe Mincke, 2016
+License     : BSD3
+Maintainer  : jeanchristophe.mincke@gmail.com
+Stability   : experimental
+Portability : POSIX
+
+-}
+
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE DataKinds #-}
@@ -54,9 +64,10 @@ instance Indexable Exp where
   getIndex (Collect n _) = n
   getIndex (LApply n _ _) = n
 
+-- | Runs a computation using a simple interpreter. Execute all computations on just one thread.
 runRec :: forall a b m.(Builder m Exp, MonadLoggerIO m) => Bool -> JobDesc a b -> m (a, b)
 runRec shouldOptimize (jobDesc@MkJobDesc {..}) = do
-  let program = expGen seed
+  let program = computationGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
   !(e::Exp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) count program
   (a,b) <- liftIO $ runLocal e
