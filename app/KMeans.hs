@@ -29,6 +29,7 @@ import            Control.Distributed.Process.Closure (mkClosure, remotable)
 import            System.Environment (getArgs)
 
 import            Blast
+import            Blast.Syntax
 import qualified  Blast.Runner.Simple as S
 import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH

@@ -13,6 +13,34 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Blast.Syntax
+(
+  Joinable (..)
+  , fun
+  , closure
+  , foldFun
+  , foldClosure
+  , funIO
+  , closureIO
+  , foldFunIO
+  , foldClosureIO
+  , rapply'
+  , rmap
+  , rflatmap
+  , rfilter
+  , (<**>)
+  , (<$$>)
+  , lfold
+  , lfold'
+  , rfold
+  , rfold'
+  , rjoin
+  , count
+  , KeyedVal (..)
+  , rKeyedJoin
+  , Range (..)
+  , rangeToList
+
+)
 where
 
 import Debug.Trace

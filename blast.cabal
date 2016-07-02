@@ -17,18 +17,16 @@ library
   exposed-modules:
     Blast
     Blast.Syntax
-    Blast.Common.Analyser
-    Blast.Slave.Analyser
-    Blast.Master.Analyser
---    Blast.Master.Optimizer
---    Blast.Slave.Optimizer
+    Blast.Runner.CloudHaskell
     Blast.Runner.Local
     Blast.Runner.Simple
-    Blast.Runner.CloudHaskell
-    Blast.Distributed.Types
-    Blast.Distributed.Slave
-    Blast.Distributed.Master
   other-modules:
+    Blast.Common.Analyser
+    Blast.Distributed.Master
+    Blast.Distributed.Slave
+    Blast.Distributed.Types
+    Blast.Master.Analyser
+    Blast.Slave.Analyser
     Blast.Types
   build-depends:       base >= 4.7 && < 5
     , async

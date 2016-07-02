@@ -26,6 +26,7 @@ import            Control.Distributed.Process.Closure (mkClosure, remotable)
 import            System.Environment (getArgs)
 
 import            Blast
+import            Blast.Syntax
 import            Blast.Runner.Simple as BRS
 import qualified  Blast.Runner.Simple as S
 import            Blast.Runner.Local as Loc
@@ -62,9 +63,10 @@ c11 c a = do
 rr :: Int ->  LocalComputation (Int, Int)
 rr = c11 c10
 
-expg
-  :: (Monad m, Builder m e) =>
-     ProgramT (Syntax m) m (e 'Local a) -> () -> ProgramT (Syntax m) m (e 'Local ((), a))
+--expg
+--  :: (Monad m, Builder m e) =>
+--     ProgramT (Syntax m) m (e 'Local a) -> () -> ProgramT (Syntax m) m (e 'Local ((), a))
+expg :: LocalComputation a -> () -> LocalComputation ((), a)
 expg c1 () = do
   r <- c1
   (\v -> ((),v)) <$$> r
@@ -149,8 +151,7 @@ fib 1 = 1
 fib 2 = 3
 fib n = fib (n-1) + fib (n-2)
 
-r1c :: (Builder m e) =>
-   ProgramT (Syntax m) m (e 'Remote [Int])
+r1c :: RemoteComputation [Int]
 r1c = rconst [ (2::Int)| _ <- [1..10::Int]]
 
 --expGenerator :: Int -> Computation Int Int

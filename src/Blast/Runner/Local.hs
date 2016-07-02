@@ -151,14 +151,13 @@ instance (S.Serialize a) => CommandClass Controller a where
       Right bs -> return $ S.decode bs
       Left e -> error ("batch, slave "++show slaveId ++ " " ++ e)
 
-createController :: (S.Serialize a, MonadIO m, MonadLoggerIO m, m ~ LoggingT IO) =>
+createController :: (S.Serialize a) =>
       Config -> Int -> JobDesc a b
-      -> m (Controller a)
+      -> LoggingT IO (Controller a)
 createController cf@(MkConfig {..}) nbSlaves (MkJobDesc {..}) = do
   m <- liftIO $ foldM proc M.empty [0..nbSlaves-1]
   return $ MkController m Nothing cf statefullSlaves
   where
---  expGen' a = build $ expGen a
   proc acc i = do
     (iChan, oChan, ls) <- createOneSlave i M.empty
     let rc = MkRemoteChannels iChan oChan

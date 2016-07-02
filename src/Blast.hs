@@ -1,9 +1,26 @@
 module Blast
 (
-  module Blast.Types
-  , module Blast.Syntax
+  Computation
+  , LocalComputation
+  , RemoteComputation
+  , Kind (..)
+  , Partition
+  , Chunkable (..)
+  , UnChunkable (..)
+  , ChunkableFreeVar (..)
+  -- , Fun ()
+  -- , FoldFun ()
+  , Syntax ()
+  , rapply
+  , rconst
+  , lconst
+  , collect
+  , lapply
+  , JobDesc (..)
+  , Config (..)
+  , defaultConfig
+
 )
 where
 
-import Blast.Types --hiding (Syntax)
-import Blast.Syntax
+import Blast.Types

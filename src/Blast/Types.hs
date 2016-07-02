@@ -195,7 +195,7 @@ build doOptimize refMap counter fuseCounter p = do
     eval (Return a) = return a
 
 
-data MasterSlave = M | S
+--data MasterSlave = M | S
 
 data JobDesc a b = MkJobDesc {
   seed :: a

@@ -34,6 +34,7 @@ import   Data.Conduit.List as CL
 import   Data.Conduit.Binary as CB
 import Control.Monad.Trans.Resource
 import            Blast
+import            Blast.Syntax
 import qualified  Blast.Runner.Simple as S
 import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH
