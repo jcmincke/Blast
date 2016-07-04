@@ -6,7 +6,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -255,11 +254,13 @@ defaultConfig = MkConfig True 1.0 True
 
 -- instances
 
-instance ChunkableFreeVar a
+instance {-# OVERLAPPABLE #-} ChunkableFreeVar a
+
+
 instance ChunkableFreeVar ()
 
 
-instance Chunkable [a] where
+instance {-# OVERLAPPABLE #-} Chunkable [a] where
   chunk nbBuckets l =
     Vc.reverse $ Vc.fromList $ go [] nbBuckets l
     where
@@ -268,7 +269,7 @@ instance Chunkable [a] where
     len = L.length l
     nbPerBucket = len `div` nbBuckets
 
-instance UnChunkable [a] where
+instance {-# OVERLAPPABLE #-} UnChunkable [a] where
   unChunk l = L.concat l
 
 

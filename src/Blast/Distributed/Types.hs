@@ -29,83 +29,30 @@ type RemoteClosureIndex = Int
 
 
 -- | The list of primitives for master-slave communication.
-class (S.Serialize x) => CommandClass' s x where
-  -- | True if slaves are statefull.
-  isStatefullSlave' :: s x -> Bool
-  -- | The number of slaves.
-  getNbSlaves' :: s x -> Int
-
-  send :: s x -> Int -> LocalSlaveRequest -> IO (Either String LocalSlaveResponse)
-
-  -- | Stops the system.
-  stop' :: s x -> IO ()
-  setSeed' :: s x -> x -> IO (s x)
-
-{-
--- | The list of primitives for master-slave communication.
 class (S.Serialize x) => CommandClass s x where
   -- | True if slaves are statefull.
   isStatefullSlave :: s x -> Bool
   -- | The number of slaves.
   getNbSlaves :: s x -> Int
-  -- | Status of a slave.
-  status  :: s x
-          -> Int        -- ^ Slave index
-          -> IO Bool
-  -- | Remotely executes a closure.
-  exec  :: s x
-        -> Int                      -- ^ Slave index.
-        -> RemoteClosureIndex       -- ^ Index of the remote closure
-        -> IO RemoteClosureResult   -- ^ Result
-  -- | Remotely caches a serialized value.
-  cache :: s x
-        -> Int            -- ^ Slave index.
-        -> Int            -- ^ Node index.
-        -> BS.ByteString  -- ^ Serialized value to cache.
-        -> IO Bool
-  -- | Remotely uncaches value associated with a node.
-  uncache :: s x
-          -> Int      -- ^ Slave index.
-          -> Int      -- ^ Node index.
-          -> IO Bool
-  -- | Fetch the remote value associated with a node.
-  fetch :: (S.Serialize a)
-        => s x
-        -> Int                  -- ^ Slave index.
-        -> Int                  -- ^ Node index.
-        -> IO (Either String a)
-  -- | Reset the given slave.
-  reset :: s x
-        -> Int    -- ^ Slave index.
-        -> IO ()
-  -- | Set the computation generator seed.
-  setSeed :: s x -> x -> IO (s x)
+
+  send :: s x -> Int -> SlaveRequest -> IO (Either String SlaveResponse)
+
   -- | Stops the system.
   stop :: s x -> IO ()
-
-  -- | Sends a list of requests as a batch.
-  -- Returns the value associated with the given node.
-  -- Uses when slaves are stateless.
-  batch :: (S.Serialize a)
-        => s x
-        -> Int                    -- ^ Slave index.
-        -> Int                    -- ^ Node index.
-        -> [LocalSlaveRequest]    -- ^ List of requests.
-        -> IO (Either String a)   -- ^ Value associated with the specified node.
--}
+  setSeed :: s x -> x -> IO (s x)
 
 
-data LocalSlaveRequest =
+data SlaveRequest =
   LsReqStatus
   |LsReqExecute RemoteClosureIndex
   |LsReqCache Int BS.ByteString
   |LsReqUncache Int
   |LsReqFetch Int
   |LsReqReset BS.ByteString
-  |LsReqBatch Int [LocalSlaveRequest]
+  |LsReqBatch Int [SlaveRequest]
   deriving (Generic)
 
-instance Show LocalSlaveRequest where
+instance Show SlaveRequest where
   show (LsReqExecute n) = "LsReqExecute "++ show n
   show (LsReqCache n _) = "LsReqCache "++ show n
   show (LsReqUncache  n) = "LsReqUncache "++ show n
@@ -114,14 +61,14 @@ instance Show LocalSlaveRequest where
   show (LsReqStatus) = "LsReqStatus"
   show (LsReqBatch n _) = "LsReqBatch "++ show n
 
-data LocalSlaveExecuteResult =
+data SlaveExecuteResult =
   LsExecResCacheMiss Int
   |LsExecResOk
   |LsExecResError String
   deriving (Generic, Show)
 
 
-data LocalSlaveResponse =
+data SlaveResponse =
   LsRespBool Bool
   |LsRespError String
   |LsRespVoid
@@ -130,7 +77,7 @@ data LocalSlaveResponse =
   |LsRespBatch (Either String BS.ByteString)
   deriving (Generic)
 
-instance Show LocalSlaveResponse where
+instance Show SlaveResponse where
   show (LsRespBool b) = "LsRespBool "++show b
   show (LsRespError e) = "LsRespError "++e
   show (LsRespVoid) = "LsRespVoid"
@@ -138,13 +85,15 @@ instance Show LocalSlaveResponse where
   show (LocalSlaveExecuteResult v) = "LocalSlaveExecuteResult "++show v
   show (LsRespBatch _) = "LsRespBatch"
 
-resetCommand :: BS.ByteString -> LocalSlaveRequest
+-- | Creates a 'reset' request.
+resetCommand  :: BS.ByteString    -- ^ The serialized value of the seed.
+              -> SlaveRequest     -- ^ The reset request
 resetCommand seedBS = LsReqReset seedBS
 
-instance Binary LocalSlaveRequest
-instance Binary LocalSlaveResponse
+instance Binary SlaveRequest
+instance Binary SlaveResponse
 
-instance NFData LocalSlaveResponse
-instance NFData LocalSlaveRequest
-instance NFData LocalSlaveExecuteResult
+instance NFData SlaveResponse
+instance NFData SlaveRequest
+instance NFData SlaveExecuteResult
 

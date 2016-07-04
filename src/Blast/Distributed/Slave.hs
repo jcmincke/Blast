@@ -13,6 +13,7 @@ module Blast.Distributed.Slave
 (
   SlaveContext (..)
   , runCommand
+  , makeSlaveContext
 )
 where
 
@@ -23,7 +24,6 @@ import            Control.Monad.Logger
 import            Control.Monad.Operational
 import            Control.Monad.Trans.State
 
-import qualified  Data.ByteString as BS
 import qualified  Data.Map as M
 import qualified  Data.Serialize as S
 import qualified  Data.Vault.Strict as V
@@ -36,7 +36,7 @@ import Blast.Slave.Analyser
 
 
 
-
+-- | Describes the current context of a slave.
 data SlaveContext m a b = MkSlaveContext {
   localSlaveId :: Int
   , infos :: InfoMap
@@ -45,89 +45,20 @@ data SlaveContext m a b = MkSlaveContext {
   , config :: Config
   }
 
-{-
-slaveReset :: (S.Serialize a, MonadLoggerIO m) => BS.ByteString -> LocalSlave m a b -> m (LocalSlave m a b)
-slaveReset bs ls@(MkLocalSlave {..}) = do
-  case S.decode bs of
-    Left e -> error e
-    Right a -> do
-      let program = expGen a
-      (refMap, count) <- generateReferenceMap 0 M.empty program
-      (e::SExp 'Local (a,b)) <- build (shouldOptimize config) refMap (0::Int) count program
-      infos' <- execStateT (analyseLocal e) M.empty
-      let ls' = ls {infos = infos', vault = V.empty}
-      return ls'
+-- | Creates a "SlaveContext" for a given slave.
+makeSlaveContext :: (MonadLoggerIO m)
+  => Config               -- ^ Configuration
+  -> Int                  -- ^Index of the slave.
+  -> JobDesc a b          -- ^ Job description
+  -> SlaveContext m a b   -- ^ Slave Context
+makeSlaveContext config slaveId (MkJobDesc {..}) =
+  MkSlaveContext slaveId M.empty V.empty computationGen config
 
-slaveStatus :: Monad m => LocalSlave m a b -> m (Bool, LocalSlave m a b)
-slaveStatus ls  = return (not $ M.null $ infos ls, ls)
-
-slaveExecute :: MonadIO m => Int -> LocalSlave m a b -> m (RemoteClosureResult, LocalSlave m a b)
-slaveExecute i ls = do
-    case M.lookup i (infos ls) of
-      Just  (GenericInfo _ (NtRMap (MkRMapInfo cs _ _))) -> do
-        (res, vault') <- liftIO $ cs (vault ls)
-        let ls' = ls {vault =  vault'}
-        return (res, ls')
-      _ -> return (ExecResError  ("info not found: "++show i), ls)
-
-
-slaveCache :: Monad m => Int -> BS.ByteString -> LocalSlave m a b -> m (Maybe String, LocalSlave m a b)
-slaveCache i bs ls =
-    case M.lookup i (infos ls) of
-      Just (GenericInfo _ (NtRConst (MkRConstInfo cacherFun _ _))) -> do
-        let vault' = cacherFun bs (vault ls)
-        return (Nothing, ls {vault = vault'})
-
-      Just (GenericInfo _ (NtLExp (MkLExpInfo cacherFun _ ))) -> do
-        let vault' = cacherFun bs (vault ls)
-        return (Nothing, ls {vault = vault'})
-
-      Just (GenericInfo _ (NtRMap _)) -> return (Just ("NtRMap GenericInfo not found: "++show i), ls)
-      Just (GenericInfo _ (NtLExpNoCache)) -> return (Just ("NtLExpNoCache GenericInfo not found: "++show i), ls)
-      _ -> return (Just ("Nothing : GenericInfo not found: "++show i), ls)
-
-slaveUnCache :: Monad m => Int -> LocalSlave m a b -> m (Maybe String, LocalSlave m a b)
-slaveUnCache i ls = do
-    case M.lookup i (infos ls) of
-      Just (GenericInfo _ (NtRMap (MkRMapInfo _ unCacherFun _))) -> do
-        let vault' = unCacherFun (vault ls)
-        return (Nothing, ls {vault = vault'})
-      Just (GenericInfo _ (NtRConst (MkRConstInfo _ unCacherFun _))) -> do
-        let vault' = unCacherFun (vault ls)
-        return (Nothing, ls {vault = vault'})
-      Just (GenericInfo _ (NtLExp (MkLExpInfo _ unCacherFun))) -> do
-        let vault' = unCacherFun (vault ls)
-        return (Nothing, ls {vault = vault'})
-      _ -> return (Just ("GenericInfo not found: "++show i), ls)
-
-slaveFetch :: Monad m
-  => Int
-  -> LocalSlave m a b
-  -> m (Maybe BS.ByteString, LocalSlave m a b)
-slaveFetch i ls = do
-    case M.lookup i (infos ls) of
-      Just (GenericInfo _ (NtRMap (MkRMapInfo _ _ (Just cacheReaderFun)))) -> do
-        return (cacheReaderFun (vault ls), ls)
-      Just (GenericInfo _ (NtRConst (MkRConstInfo _ _ (Just cacheReaderFun)))) -> do
-        return (cacheReaderFun (vault ls), ls)
-      _ -> return $ (Nothing, ls)
-slaveBatch ::(Monad m)
-    => Int
-    -> [LocalSlave m a b -> m (t, LocalSlave m a b)]
-    -> LocalSlave m a b
-    -> m (Either String BS.ByteString, LocalSlave m a b)
-slaveBatch nRes requests ls = do
-  ls' <- foldM (\acc request -> do  (_, acc') <- request acc
-                                    return acc') ls requests
-  -- fetch results
-  (res, ls'') <- slaveFetch nRes ls'
-  case res of
-    Just r -> return $ (Right r, ls'')
-    Nothing -> return $ (Left "Batch: could not read results", ls'')
-    _ -> return $ (Left "Batch: bad response", ls'')
--}
-
-runCommand :: forall a b m. (S.Serialize a, MonadLoggerIO m) => LocalSlaveRequest -> SlaveContext m a b -> m (LocalSlaveResponse, SlaveContext m a b)
+-- | Runs the given command against the specified state of a slave.
+runCommand :: forall a b m. (S.Serialize a, MonadLoggerIO m)
+  => SlaveRequest                          -- ^ Command.
+  -> SlaveContext m a b                    -- ^ Slave context
+  -> m (SlaveResponse, SlaveContext m a b) -- ^ Returns the response from the slave and the new slave context.
 runCommand (LsReqReset  bs) ls@(MkSlaveContext {..}) = do
   case S.decode bs of
     Left e -> error e

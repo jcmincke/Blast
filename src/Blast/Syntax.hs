@@ -16,7 +16,6 @@ Portability : POSIX
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -50,7 +49,7 @@ module Blast.Syntax
 )
 where
 
-import Debug.Trace
+--import Debug.Trace
 import            Control.Monad hiding (join)
 import            Data.Foldable
 import            Data.Hashable
@@ -226,7 +225,7 @@ instance (Show (t (KeyedVal k v))) => Show (OptiT t k v) where
 
 instance (S.Serialize (t (KeyedVal k v))) => S.Serialize (OptiT t k v)
 
-instance (Hashable k) => Chunkable [KeyedVal k v] where
+instance  {-# OVERLAPPING #-} (Hashable k) => Chunkable [KeyedVal k v] where
   chunk nbBuckets l =
     Vc.reverse $ Vc.generate nbBuckets (\i -> buckets M.! i)
     where
@@ -235,12 +234,12 @@ instance (Hashable k) => Chunkable [KeyedVal k v] where
       i = hash k `mod` nbBuckets
       in M.insertWith (++) i [kv] bucket'
 
-instance (Hashable k) => UnChunkable [KeyedVal k v] where
+instance {-# OVERLAPPING #-} (Hashable k) => UnChunkable [KeyedVal k v] where
   unChunk l = L.concat l
 
 
 instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v)), Chunkable (t (KeyedVal k v))) => ChunkableFreeVar (OptiT t k v) where
-  chunk' n (OptiT tkvs) = trace ("here") $ fmap OptiT $ chunk n tkvs
+  chunk' n (OptiT tkvs) = fmap OptiT $ chunk n tkvs
 
 
 -- | Optimized remote join operation between 2 collections of (key, value) pairs.
