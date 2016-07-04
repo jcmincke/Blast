@@ -68,7 +68,7 @@ doRunRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   (refMap, count) <- generateReferenceMap 0 M.empty program
   e <- build shouldOptimize refMap (0::Int) count program
   infos <- execStateT (analyseLocal e) M.empty
-  s' <- liftIO $ setSeed s seed
+  s' <- liftIO $ setSeed' s seed
   ((a, b), _) <- evalStateT (runLocal e) (s', V.empty, infos)
   a' <- liftIO $ reportingAction a b
   case recPredicate seed a' b of
@@ -88,13 +88,44 @@ data Controller a = MkController {
   , statefullSlaveMode :: Bool
 }
 
+
 randomSlaveReset :: (S.Serialize a) => Controller a -> Int -> IO ()
-randomSlaveReset s@(MkController {config = MkConfig {..}}) slaveId = do
-  r <- randomRIO (0.0, 1.0)
-  when (r > slaveAvailability) $ reset s slaveId
+randomSlaveReset s@(MkController {config = MkConfig {..}, seedM = seedM}) slaveId = do
+  case seedM of
+    Just a -> do
+      r <- randomRIO (0.0, 1.0)
+      when (r > slaveAvailability) $ do
+        let req = resetCommand (S.encode a)
+        send s slaveId req
+        return ()
 
 
+instance (S.Serialize a) => CommandClass' Controller a where
+  isStatefullSlave' (MkController{ statefullSlaveMode = mode }) = mode
+  getNbSlaves' (MkController {..}) = M.size slaveChannels
 
+  send s@(MkController {..}) slaveId req = do
+    randomSlaveReset s slaveId
+    let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
+    let !req' = force req
+    writeChan iocOutChan req'
+    resp <- readChan iocInChan
+    return $ Right resp
+
+  stop' _ = return ()
+  setSeed' s@(MkController {..}) a = do
+    let s' = s {seedM = Just a}
+    resetAll s'
+    return s'
+    where
+    resetAll as = do
+      let nbSlaves = getNbSlaves' as
+      let slaveIds = [0 .. nbSlaves - 1]
+      let req = resetCommand (S.encode a)
+      _ <- mapConcurrently (\slaveId -> send as slaveId req) slaveIds
+      return ()
+
+{-}
 instance (S.Serialize a) => CommandClass Controller a where
   isStatefullSlave (MkController{ statefullSlaveMode = mode }) = mode
   getNbSlaves (MkController {..}) = M.size slaveChannels
@@ -124,7 +155,6 @@ instance (S.Serialize a) => CommandClass Controller a where
       LsRespBool b -> return b
       _ -> error "Should not reach here"
 
-
   uncache (MkController {..}) slaveId i = do
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
     let req = LsReqUncache i
@@ -132,6 +162,7 @@ instance (S.Serialize a) => CommandClass Controller a where
     writeChan iocOutChan req'
     (LsRespBool b) <- readChan iocInChan
     return b
+
   fetch (MkController {..}) slaveId i = do
     let (MkRemoteChannels {..}) = slaveChannels M.! slaveId
     let req = LsReqFetch i
@@ -149,6 +180,7 @@ instance (S.Serialize a) => CommandClass Controller a where
     writeChan iocOutChan req
     LsRespVoid <- readChan iocInChan
     return ()
+
   setSeed s@(MkController {..}) a = do
     let s' = s {seedM = Just a}
     resetAll s'
@@ -168,6 +200,7 @@ instance (S.Serialize a) => CommandClass Controller a where
     case rE of
       Right bs -> return $ S.decode bs
       Left e -> error ("batch, slave "++show slaveId ++ " " ++ e)
+-}
 
 createController :: (S.Serialize a) =>
       Config -> Int -> JobDesc a b
@@ -185,20 +218,63 @@ createController cf@(MkConfig {..}) nbSlaves (MkJobDesc {..}) = do
   createOneSlave slaveId infos = do
     iChan <- newChan
     oChan <- newChan
-    return $ (iChan, oChan, MkLocalSlave slaveId infos V.empty computationGen cf)
+    return $ (iChan, oChan, MkSlaveContext slaveId infos V.empty computationGen cf)
 
 
-runSlave :: (S.Serialize a) => Chan LocalSlaveRequest -> Chan LocalSlaveResponse -> LocalSlave (LoggingT IO) a b -> IO ()
+runSlave :: (S.Serialize a) => Chan LocalSlaveRequest -> Chan LocalSlaveResponse -> SlaveContext (LoggingT IO) a b -> IO ()
 runSlave inChan outChan als =
   runStdoutLoggingT $ go als
   where
-  go ls@(MkLocalSlave {..}) = do
+  go ls@(MkSlaveContext {..}) = do
     req <- liftIO $ readChan inChan
-    (resp, ls') <- runCommand ls req
+    (resp, ls') <- runCommand req ls
     let resp' = force resp
     liftIO $ writeChan outChan resp'
     go ls'
 
+
+
+{-
+runCommand' :: forall a b m. (S.Serialize a, MonadLoggerIO m) => LocalSlaveRequest -> LocalSlave m a b -> m (LocalSlaveResponse, LocalSlave m a b)
+
+runCommand' (LsReqReset  bs) ls = do
+  ls' <- slaveReset bs ls
+  return  (LsRespVoid, ls')
+
+runCommand' LsReqStatus ls = do
+  (b, ls') <- slaveStatus ls
+  return (LsRespBool b, ls')
+
+runCommand' (LsReqExecute i) ls = do
+    (res, ls') <- slaveExecute i ls
+    return (LocalSlaveExecuteResult res, ls')
+
+runCommand' (LsReqCache i bs)  ls = do
+  (res , ls') <- slaveCache i bs ls
+  case res of
+    Nothing -> (LsRespBool True, ls')
+    Just err -> (LocalSlaveExecuteResult (ExecResError err), ls')
+
+runCommand' (LsReqUncache i) ls = do
+  (res , ls') <- slaveUnCache i ls
+  case res of
+    Nothing -> (LsRespBool True, ls')
+    Just err -> (LocalSlaveExecuteResult (ExecResError err), ls')
+
+runCommand' i ls = do
+    (res, ls') <- slaveFetch i ls
+    return $ (LsFetch res, ls')
+
+runCommand' (LsReqBatch nRes requests) ls = do
+  ls' <- foldM (\acc req -> do  (_, acc') <- runCommand' req acc
+                                return acc') ls requests
+  -- fetch results
+  (res, ls'') <- runCommand' ls' (LsReqFetch nRes)
+  case res of
+    (LsFetch (Just r)) -> return $ (LsRespBatch (Right r), ls'')
+    (LsFetch Nothing) -> return $ (LsRespBatch (Left "Batch: could not read results"), ls'')
+    _ -> return $ (LsRespBatch (Left "Batch: bad response"), ls'')
+-}
 
 
 

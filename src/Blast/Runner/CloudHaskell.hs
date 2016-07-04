@@ -43,7 +43,7 @@ import            Control.Monad.Logger
 import            Control.Monad.STM
 import            Control.Monad.Trans.State
 
-import            Control.Distributed.Process hiding (newChan)
+import            Control.Distributed.Process hiding (newChan, send)
 import            Control.Distributed.Process.Backend.SimpleLocalnet
 import            Control.Distributed.Process.Extras.Internal.Types  (ExitReason(..))
 import            Control.Distributed.Process.Extras.Time (Delay(..))
@@ -109,8 +109,8 @@ slaveProcess :: forall a b . (S.Serialize a, Typeable a, Typeable b) =>
 slaveProcess configurator (MkJobDesc {..}) slaveIdx = do
   (MkRpcConfig config _ (MkSlaveConfig {..})) <- liftIO configurator
   liftIO $ putStrLn $ "starting slave process: " ++ show slaveIdx
-  let slaveState = MkLocalSlave slaveIdx M.empty V.empty computationGen config
-  let (server::ProcessDefinition (LocalSlave (LoggingT IO) a b)) = defaultProcess {
+  let slaveState = MkSlaveContext slaveIdx M.empty V.empty computationGen config
+  let (server::ProcessDefinition (SlaveContext (LoggingT IO) a b)) = defaultProcess {
       apiHandlers = [handleCall (handle slaveLogger)]
     , exitHandlers = [handleExit exitHandler]
     , shutdownHandler = shutdownHandler
@@ -119,7 +119,7 @@ slaveProcess configurator (MkJobDesc {..}) slaveIdx = do
   serve slaveState (\ls -> return $ InitOk ls Infinity) server
   where
   handle logger ls req = do
-    (resp, ls') <- liftIO $ logger $ runCommand ls req
+    (resp, ls') <- liftIO $ logger $ runCommand req ls
     let resp' = force resp
     replyWith resp' (ProcessContinue ls')
   exitHandler _ _ () = do
@@ -145,11 +145,40 @@ rpcCall (MkRpcState {..}) slaveIdx request = do
     respE <- atomically $ readTChan _slaveResponseChannel
     case respE of
       Right resp -> return resp
-      Left (RpcResponseControlError err) -> return $ LsRespError err
+      Left (RpcResponseControlError err) -> error ("Error in CloudHaskell RPC: " ++ err)
       Left RpcResponseControlStopped -> error "should not reach"
 
 
+instance (S.Serialize a) => CommandClass' RpcState a where
+  isStatefullSlave' (MkRpcState{ statefullSlaveMode = mode }) = mode
+  getNbSlaves' (MkRpcState {..}) = M.size rpcSlaves
 
+  send rpc@(MkRpcState {..}) slaveId req = do
+    r <- rpcCall rpc slaveId req
+    return $ Right r
+
+  stop' (MkRpcState {..}) = do
+    let slaveInfos = M.elems rpcSlaves
+    mapM_ (\(MkSlaveInfo {..}) -> do
+      atomically $ writeTChan _slaveRequestChannel (Left RpcRequestControlStop)
+      _ <- atomically $ readTChan _slaveResponseChannel
+      -- todo add error management
+      return ()
+      ) slaveInfos
+
+  setSeed' rpc@(MkRpcState {..}) a = do
+    let rpc' = rpc {rpcSeed = Just a}
+    resetAll rpc'
+    return rpc'
+    where
+    resetAll aRpc = do
+      let nbSlaves = getNbSlaves' aRpc
+      let slaveIds = [0 .. nbSlaves - 1]
+      let req = resetCommand (S.encode a)
+      _ <- mapConcurrently (\slaveId -> send aRpc slaveId req) slaveIds
+      return ()
+
+{-
 instance (S.Serialize a) => CommandClass RpcState a where
   isStatefullSlave (MkRpcState{ statefullSlaveMode = mode }) = mode
   getNbSlaves (MkRpcState {..}) = M.size rpcSlaves
@@ -211,9 +240,9 @@ instance (S.Serialize a) => CommandClass RpcState a where
     case rE of
       Right bs -> return $ S.decode bs
       Left e -> error ("batch, slave "++show slaveId ++ " " ++ e)
+-}
 
-
-startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, CommandClass RpcState a) =>
+startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, CommandClass' RpcState a) =>
   RpcConfig
   -> JobDesc a b
   -> (Int -> Closure (Process()))
@@ -248,7 +277,7 @@ startClientRpc rpcConfig@(MkRpcConfig config (MkMasterConfig logger) _) theJobDe
         mapM_ (\slaveInfo -> spawnLocal (startOneClientRpc slaveInfo slaveClosure)) $ M.elems slaveInfoMap
         let rpcState = MkRpcState slaveInfoMap Nothing (statefullSlaves config)
         (a, b) <- liftIO $ do logger $ runComputation rpcConfig 0 rpcState jobDesc
-        liftIO $ stop rpcState
+        liftIO $ stop' rpcState
         a' <- liftIO $ reportingAction a b
         case recPredicate seed a' b of
           True -> liftIO $ k a b
@@ -265,7 +294,7 @@ startClientRpc rpcConfig@(MkRpcConfig config (MkMasterConfig logger) _) theJobDe
     e <- build shouldOptimize refMap (0::Int) (1000::Int) program
 
     infos <- execStateT (analyseLocal e) M.empty
-    rpc' <- liftIO $ setSeed rpc seed
+    rpc' <- liftIO $ setSeed' rpc seed
     (r, _) <- evalStateT (runLocal e) (rpc', V.empty, infos)
     return r
 

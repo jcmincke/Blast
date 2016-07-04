@@ -26,6 +26,22 @@ import            Blast.Common.Analyser
 
 type RemoteClosureIndex = Int
 
+
+
+-- | The list of primitives for master-slave communication.
+class (S.Serialize x) => CommandClass' s x where
+  -- | True if slaves are statefull.
+  isStatefullSlave' :: s x -> Bool
+  -- | The number of slaves.
+  getNbSlaves' :: s x -> Int
+
+  send :: s x -> Int -> LocalSlaveRequest -> IO (Either String LocalSlaveResponse)
+
+  -- | Stops the system.
+  stop' :: s x -> IO ()
+  setSeed' :: s x -> x -> IO (s x)
+
+{-
 -- | The list of primitives for master-slave communication.
 class (S.Serialize x) => CommandClass s x where
   -- | True if slaves are statefull.
@@ -76,6 +92,7 @@ class (S.Serialize x) => CommandClass s x where
         -> Int                    -- ^ Node index.
         -> [LocalSlaveRequest]    -- ^ List of requests.
         -> IO (Either String a)   -- ^ Value associated with the specified node.
+-}
 
 
 data LocalSlaveRequest =
@@ -121,7 +138,8 @@ instance Show LocalSlaveResponse where
   show (LocalSlaveExecuteResult v) = "LocalSlaveExecuteResult "++show v
   show (LsRespBatch _) = "LsRespBatch"
 
-
+resetCommand :: BS.ByteString -> LocalSlaveRequest
+resetCommand seedBS = LsReqReset seedBS
 
 instance Binary LocalSlaveRequest
 instance Binary LocalSlaveResponse
