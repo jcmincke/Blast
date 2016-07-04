@@ -247,10 +247,10 @@ data Config = MkConfig
 
 -- | Default configuration
 -- @
--- defaultConfig = MkConfig True 1.0 True
+-- defaultConfig = MkConfig False 1.0 True
 -- @
 defaultConfig :: Config
-defaultConfig = MkConfig True 1.0 True
+defaultConfig = MkConfig False 1.0 True
 
 -- instances
 

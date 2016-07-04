@@ -219,12 +219,17 @@ jobDesc = MkJobDesc 0 expGenerator4 reporting (\_ x _  -> True)
 
 
 rloc statefull = do
-  let cf = defaultConfig { statefullSlaves = statefull }
+  let cf = defaultConfig { statefullSlaves = statefull, shouldOptimize = False }
   (a,b) <- runStdoutLoggingT $ Loc.runRec 1 cf jobDesc
   print a
   print b
 
 
+simple :: IO ()
+simple = do
+  (a,b) <- runStdoutLoggingT $ S.runRec False jobDesc
+  print a
+  print b
 
 rpcConfigAction = return $
   MkRpcConfig
