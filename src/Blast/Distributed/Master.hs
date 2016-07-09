@@ -69,17 +69,25 @@ dereference parent child = do
       return $ S.null crefs'
     else error ("Remove parent reference twice for parent "++show parent ++" and child "++show child)
 
-processRpcError :: Either String t -> t
-processRpcError (Right a) = a
-processRpcError (Left err) = error ("Error in RPC: "++err)
+handleRpcError :: Either String t -> t
+handleRpcError (Right a) = a
+handleRpcError (Left err) = error ("Error in RPC: "++err)
+
+handleRpcErrorM :: (Monad m) => Either String t -> m t
+handleRpcErrorM a = return $ handleRpcError a
+
+
+handleSlaveErrorM :: (Monad m) => SlaveResponse -> m SlaveResponse
+handleSlaveErrorM (LsRespError err) = error ("Error in Slave: "++err)
+handleSlaveErrorM r = return r
 
 runRemoteOneSlaveStatefull ::(CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
 runRemoteOneSlaveStatefull slaveId oe@(MRApply n (ExpClosure ce _) e) = do
   s <- getRemote
   let req = LsReqExecute n
   r <- liftIO $ send s slaveId req
-  case processRpcError r of
-    LocalSlaveExecuteResult (RemCsResCacheMiss CachedFreeVar) -> do
+  case handleRpcError r of
+    LsRespExecute (RcRespCacheMiss CachedFreeVar) -> do
       vault <- getVault
       let keyce = getLocalVaultKey ce
       let cem = V.lookup keyce vault
@@ -91,14 +99,16 @@ runRemoteOneSlaveStatefull slaveId oe@(MRApply n (ExpClosure ce _) e) = do
           let csBs = p Vc.! slaveId
           let req' = LsReqCache ceId csBs
           r' <- liftIO $ send s slaveId req'
-          _ <- return $ processRpcError r'
+          sr <- handleRpcErrorM r'
+          _ <- handleSlaveErrorM sr
           runRemoteOneSlaveStatefull slaveId oe
-    LocalSlaveExecuteResult (RemCsResCacheMiss CachedArg) -> do
+    LsRespExecute (RcRespCacheMiss CachedArg) -> do
       runRemoteOneSlaveStatefull slaveId e
       runRemoteOneSlaveStatefull slaveId oe
       -- todo uncache e if should not be cached
-    LocalSlaveExecuteResult ExecRes -> return ()
-    LocalSlaveExecuteResult (ExecResError err) -> error ( "remote call: " ++ err)
+    LsRespExecute RcRespOk -> return ()
+    LsRespExecute (RcRespError err) -> error ( "remote call: " ++ err)
+    LsRespError err -> error ( "remote call: " ++ err)
     _ -> error ( "Should not reach here")
 
 runRemoteOneSlaveStatefull slaveId (MRConst n key _) = do
@@ -110,7 +120,8 @@ runRemoteOneSlaveStatefull slaveId (MRConst n key _) = do
       let req = LsReqCache n bs
       r <- liftIO $ send s slaveId req
       -- TODO :verify next line.
-      _ <- return $ processRpcError r
+      sr <- handleRpcErrorM r
+      _ <- handleSlaveErrorM sr
       return ()
     Nothing ->  error ("MRConst value not cached"::String)
 
@@ -148,12 +159,12 @@ fetchOneSlaveResults slaveId e = do
   let n = getRemoteIndex e
   let req = LsReqFetch n
   rE <- liftIO $ send s slaveId req
-  case processRpcError rE of
-    LsFetch (Just bs) ->
+  case handleRpcError rE of
+    LsRespFetch bs ->
       case S.decode bs of
         Right v -> return v
         Left err -> error ("Cannot decode fetched value: " ++ err)
-    LsFetch Nothing -> error ("Cannot fetch results for node: "++ show n)
+    LsRespError err -> error ("Cannot fetch results for node: "++ err)
     _ -> error ( "Should not reach here")
 
 fetchResults :: (S.Serialize r, MonadIO m, UnChunkable r, CommandClass s x) =>
@@ -167,13 +178,14 @@ fetchResults e = do
   return $ unChunk r
 
 
-unCacheRemoteOneSlave :: (CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m Bool
+unCacheRemoteOneSlave :: (CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
 unCacheRemoteOneSlave slaveId e = do
   s <- getRemote
   let req = LsReqUncache (getRemoteIndex e)
   rE <- liftIO $ send s slaveId req
-  case processRpcError rE of
-    LsRespBool b -> return b
+  case handleRpcError rE of
+    LsRespVoid -> return ()
+    LsRespError err -> error ("Error, uncaching: "++err)
     _ -> error ( "Should not reach here")
 
 unCacheRemote :: (CommandClass s x, MonadIO m) => MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
@@ -183,16 +195,16 @@ unCacheRemote e = do
   let slaveIds = [0 .. nbSlaves - 1]
   st <- get
   _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (unCacheRemoteOneSlave slaveId e) st) slaveIds
-  -- todo error handling
   return ()
 
-unCacheLocalOneSlave :: (CommandClass s x, MonadIO m) => Int -> MExp 'Local a -> StateT (s x , V.Vault, InfoMap) m Bool
+unCacheLocalOneSlave :: (CommandClass s x, MonadIO m) => Int -> MExp 'Local a -> StateT (s x , V.Vault, InfoMap) m ()
 unCacheLocalOneSlave slaveId e = do
   s <- getRemote
   let req = LsReqUncache (getLocalIndex e)
   rE <- liftIO $ send s slaveId req
-  case processRpcError rE of
-    LsRespBool b -> return b
+  case handleRpcError rE of
+    LsRespVoid -> return ()
+    LsRespError err -> error ("Error, uncaching: "++err)
     _ -> error ("Should not reach here")
 
 unCacheLocal :: (CommandClass s x, MonadIO m) => MExp 'Local a -> StateT (s x , V.Vault, InfoMap) m ()
@@ -202,7 +214,6 @@ unCacheLocal e = do
   let slaveIds = [0 .. nbSlaves - 1]
   st <- get
   _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (unCacheLocalOneSlave slaveId e) st) slaveIds
-  -- todo error handling
   return ()
 
 runRemote ::(CommandClass s x, MonadLoggerIO m, S.Serialize a, UnChunkable a) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m a
@@ -271,12 +282,12 @@ doRunRemoteStateless oe@(MRApply n _ _) = do
     s <- getRemote
     let req = LsReqBatch n requests'
     aE <- liftIO $ send s slaveId req
-    case processRpcError aE of
-      LsRespBatch (Right bs) ->
+    case handleRpcError aE of
+      LsRespBatch bs ->
         case S.decode bs of
           Right a -> return a
           Left err -> error ("Cannot decode value from a batch execution: "++err)
-      LsRespBatch (Left e) -> error e
+      LsRespError err -> error ("Batch error: "++err)
       _ -> error ( "Should not reach here")
 
 doRunRemoteStateless (MRConst _ _ a) = return a

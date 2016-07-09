@@ -10,6 +10,15 @@
 
 
 module Blast.Slave.Analyser
+(
+  SExp (..)
+  , NodeTypeInfo (..)
+  , LExpInfo (..)
+  , RConstInfo (..)
+  , RMapInfo (..)
+  , InfoMap
+  , analyseLocal
+)
 where
 
 --import Debug.Trace
@@ -39,13 +48,13 @@ data SExp (k::Kind) a where
 
 
 
-
+{-}
 nextIndex :: (MonadIO m) => StateT Int m Int
 nextIndex = do
   index <- get
   put (index+1)
   return index
-
+-}
 
 instance (MonadLoggerIO m) => Builder m SExp where
   makeRApply i f a = do
@@ -77,7 +86,7 @@ instance Indexable SExp where
 type Cacher = BS.ByteString -> V.Vault -> V.Vault
 type CacherReader = V.Vault -> Maybe BS.ByteString
 type UnCacher = V.Vault -> V.Vault
-type IsCached = V.Vault -> Bool
+--type IsCached = V.Vault -> Bool
 
 data NodeTypeInfo =
   NtRMap RMapInfo
@@ -110,29 +119,30 @@ getVal :: (Monad m) =>  CachedValType -> V.Vault -> V.Key a -> EitherT RemoteClo
 getVal cvt vault key =
   case V.lookup key vault of
   Just v -> right v
-  Nothing -> left $ RemCsResCacheMiss cvt
+  Nothing -> left $ RcRespCacheMiss cvt
 
 getLocalVal :: (Monad m) =>  CachedValType -> V.Vault -> V.Key a -> EitherT RemoteClosureResult m a
 getLocalVal cvt vault key  =
   case V.lookup key vault of
   Just v -> right v
-  Nothing -> left $ RemCsResCacheMiss cvt
+  Nothing -> left $ RcRespCacheMiss cvt
 
+{-}
 getRemoteClosure :: Int -> InfoMap -> RemoteClosureImpl
 getRemoteClosure n m =
   case M.lookup n m of
     Just (GenericInfo _ (NtRMap (MkRMapInfo cs _ _)))   -> cs
     _ -> error ("Closure does not exist for node: " ++ show n)
-
+-}
 makeUnCacher :: V.Key a -> V.Vault -> V.Vault
 makeUnCacher k vault = V.delete k vault
 
-makeIsCached :: V.Key a -> V.Vault -> Bool
+{-makeIsCached :: V.Key a -> V.Vault -> Bool
 makeIsCached k vault =
     case V.lookup k vault of
     Just _ -> True
     Nothing -> False
-
+-}
 mkRemoteClosure :: forall a b m . (MonadLoggerIO m) =>
   V.Key a -> V.Key b -> ExpClosure SExp a b -> StateT InfoMap m RemoteClosureImpl
 mkRemoteClosure keya keyb (ExpClosure e f) = do
@@ -156,7 +166,7 @@ wrapClosure keyc keya keyb f =
         av <- getVal CachedArg vault keya
         brdd <- liftIO $ (f c) av
         let vault' = V.insert keyb brdd vault
-        return (ExecRes, vault')
+        return (RcRespOk, vault')
 
 visitLocalExp :: Int -> InfoMap -> InfoMap
 visitLocalExp n m =

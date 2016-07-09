@@ -16,6 +16,46 @@
 
 
 module Blast.Types
+(
+  Computation
+  , LocalComputation
+  , RemoteComputation
+  , Kind (..)
+  , Partition
+  , Chunkable (..)
+  , UnChunkable (..)
+  , ChunkableFreeVar (..)
+  , Fun (..)
+  , FoldFun (..)
+  , ExpClosure (..)
+  , Indexable (..)
+  , Builder (..)
+  , Syntax (..)
+  , GenericInfoMap
+  , GenericInfo (..)
+  , rapply'
+  , rconst
+  , lconst
+  , collect
+  , lapply
+  , rapply
+  , refCount
+  , generateReferenceMap
+  , build
+  , JobDesc (..)
+  , Config (..)
+  , defaultConfig
+  , fun
+  , closure
+  , foldFun
+  , foldClosure
+  , funIO
+  , closureIO
+  , foldFunIO
+  , foldClosureIO
+
+  , refs
+)
 where
 
 --import Debug.Trace

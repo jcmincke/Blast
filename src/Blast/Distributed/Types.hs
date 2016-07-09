@@ -10,6 +10,13 @@
 
 
 module Blast.Distributed.Types
+(
+  CommandClass (..)
+  , SlaveRequest (..)
+  , SlaveResponse (..)
+  , RemoteClosureIndex
+  , resetCommand
+)
 where
 
 
@@ -43,8 +50,7 @@ class (S.Serialize x) => CommandClass s x where
 
 
 data SlaveRequest =
-  LsReqStatus
-  |LsReqExecute RemoteClosureIndex
+  LsReqExecute RemoteClosureIndex
   |LsReqCache Int BS.ByteString
   |LsReqUncache Int
   |LsReqFetch Int
@@ -58,31 +64,22 @@ instance Show SlaveRequest where
   show (LsReqUncache  n) = "LsReqUncache "++ show n
   show (LsReqFetch  n) = "LsReqFetch "++ show n
   show (LsReqReset _) = "LsReqReset"
-  show (LsReqStatus) = "LsReqStatus"
   show (LsReqBatch n _) = "LsReqBatch "++ show n
-
-data SlaveExecuteResult =
-  LsExecResCacheMiss Int
-  |LsExecResOk
-  |LsExecResError String
-  deriving (Generic, Show)
 
 
 data SlaveResponse =
-  LsRespBool Bool
+  LsRespVoid
+  |LsRespFetch BS.ByteString
+  |LsRespExecute RemoteClosureResult
+  |LsRespBatch BS.ByteString
   |LsRespError String
-  |LsRespVoid
-  |LsFetch (Maybe BS.ByteString)
-  |LocalSlaveExecuteResult RemoteClosureResult
-  |LsRespBatch (Either String BS.ByteString)
   deriving (Generic)
 
 instance Show SlaveResponse where
-  show (LsRespBool b) = "LsRespBool "++show b
   show (LsRespError e) = "LsRespError "++e
   show (LsRespVoid) = "LsRespVoid"
-  show (LsFetch _) = "LsFetch"
-  show (LocalSlaveExecuteResult v) = "LocalSlaveExecuteResult "++show v
+  show (LsRespFetch _) = "LsFetch"
+  show (LsRespExecute v) = "LocalSlaveExecuteResult "++show v
   show (LsRespBatch _) = "LsRespBatch"
 
 -- | Creates a 'reset' request.
@@ -95,5 +92,4 @@ instance Binary SlaveResponse
 
 instance NFData SlaveResponse
 instance NFData SlaveRequest
-instance NFData SlaveExecuteResult
 

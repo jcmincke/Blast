@@ -9,6 +9,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Blast.Master.Analyser
+(
+  MExp (..)
+  , InfoMap
+  , LocalKey
+  , analyseLocal
+  , getLocalIndex
+  , getRemoteIndex
+)
 where
 
 --import Debug.Trace

@@ -5,6 +5,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Blast.Common.Analyser
+(
+  CachedValType (..)
+  , RemoteClosureResult (..)
+  , RemoteClosureImpl
+  , referenceM
+  , wasVisitedM
+)
 where
 
 --import Debug.Trace
@@ -27,9 +34,9 @@ data CachedValType = CachedArg | CachedFreeVar
   deriving (Show, Generic)
 
 data RemoteClosureResult =
-  RemCsResCacheMiss CachedValType
-  |ExecRes
-  |ExecResError String
+  RcRespCacheMiss CachedValType
+  |RcRespOk
+  |RcRespError String
   deriving (Generic, Show)
 
 

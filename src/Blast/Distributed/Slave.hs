@@ -59,7 +59,7 @@ runCommand :: forall a b m. (S.Serialize a, MonadLoggerIO m)
   => SlaveRequest                          -- ^ Command.
   -> SlaveContext m a b                    -- ^ Slave context
   -> m (SlaveResponse, SlaveContext m a b) -- ^ Returns the response from the slave and the new slave context.
-runCommand (LsReqReset  bs) ls@(MkSlaveContext {..}) = do
+runCommand (LsReqReset bs) ls@(MkSlaveContext {..}) = do
   case S.decode bs of
     Left e -> error e
     Right a -> do
@@ -69,53 +69,58 @@ runCommand (LsReqReset  bs) ls@(MkSlaveContext {..}) = do
       infos' <- execStateT (analyseLocal e) M.empty
       let ls' = ls {infos = infos', vault = V.empty}
       return  (LsRespVoid, ls')
-runCommand LsReqStatus ls = return (LsRespBool (not $ M.null $ infos ls), ls)
 runCommand (LsReqExecute i) ls = do
     case M.lookup i (infos ls) of
       Just  (GenericInfo _ (NtRMap (MkRMapInfo cs _ _))) -> do
         (res, vault') <- liftIO $ cs (vault ls)
         let ls' = ls {vault =  vault'}
-        return (LocalSlaveExecuteResult res, ls')
-      _ -> return (LocalSlaveExecuteResult (ExecResError ("info not found: "++show i)), ls)
+        case res of
+          RcRespError err -> return (LsRespError err, ls')
+          _ -> return (LsRespExecute res, ls')
+      _ -> return (LsRespError ("Info not found: "++show i), ls)
 runCommand (LsReqCache i bs) ls =
     case M.lookup i (infos ls) of
       Just (GenericInfo _ (NtRConst (MkRConstInfo cacherFun _ _))) -> do
         let vault' = cacherFun bs (vault ls)
-        return (LsRespBool True, ls {vault = vault'})
+        return (LsRespVoid, ls {vault = vault'})
 
       Just (GenericInfo _ (NtLExp (MkLExpInfo cacherFun _ ))) -> do
         let vault' = cacherFun bs (vault ls)
-        return (LsRespBool True, ls {vault = vault'})
+        return (LsRespVoid, ls {vault = vault'})
 
-      Just (GenericInfo _ (NtRMap _)) -> return (LocalSlaveExecuteResult (ExecResError ("NtRMap GenericInfo not found: "++show i)), ls)
-      Just (GenericInfo _ (NtLExpNoCache)) -> return (LocalSlaveExecuteResult (ExecResError ("NtLExpNoCache GenericInfo not found: "++show i)), ls)
-      _ -> return (LocalSlaveExecuteResult (ExecResError ("Nothing : GenericInfo not found: "++show i)), ls)
+      Just (GenericInfo _ (NtRMap _)) -> return (LsRespError ("NtRMap GenericInfo not found: "++show i), ls)
+      Just (GenericInfo _ (NtLExpNoCache)) -> return (LsRespError ("NtLExpNoCache GenericInfo not found: "++show i), ls)
+      _ -> return (LsRespError ("Nothing : GenericInfo not found: "++show i), ls)
 runCommand (LsReqUncache i) ls = do
     case M.lookup i (infos ls) of
       Just (GenericInfo _ (NtRMap (MkRMapInfo _ unCacherFun _))) -> do
         let vault' = unCacherFun (vault ls)
-        return (LsRespBool True, ls {vault = vault'})
+        return (LsRespVoid, ls {vault = vault'})
       Just (GenericInfo _ (NtRConst (MkRConstInfo _ unCacherFun _))) -> do
         let vault' = unCacherFun (vault ls)
-        return (LsRespBool True, ls {vault = vault'})
+        return (LsRespVoid, ls {vault = vault'})
       Just (GenericInfo _ (NtLExp (MkLExpInfo _ unCacherFun))) -> do
         let vault' = unCacherFun (vault ls)
-        return (LsRespBool True, ls {vault = vault'})
-      _ -> return (LocalSlaveExecuteResult (ExecResError ("GenericInfo not found: "++show i)), ls)
+        return (LsRespVoid, ls {vault = vault'})
+      _ -> return (LsRespError ("GenericInfo not found: "++show i), ls)
 runCommand (LsReqFetch i) ls = do
     case M.lookup i (infos ls) of
       Just (GenericInfo _ (NtRMap (MkRMapInfo _ _ (Just cacheReaderFun)))) -> do
-        return (LsFetch $ cacheReaderFun (vault ls), ls)
+        case cacheReaderFun (vault ls) of
+          Just a -> return (LsRespFetch a, ls)
+          Nothing -> return (LsRespError "Cannot fetch results", ls)
       Just (GenericInfo _ (NtRConst (MkRConstInfo _ _ (Just cacheReaderFun)))) -> do
-        return (LsFetch $ cacheReaderFun (vault ls), ls)
-      _ -> return $ (LsFetch Nothing, ls)
+        case cacheReaderFun (vault ls) of
+          Just a -> return (LsRespFetch a, ls)
+          Nothing -> return (LsRespError "Cannot fetch results", ls)
+      _ -> return $ (LsRespError "Cannot fetch results", ls)
 runCommand (LsReqBatch nRes requests) ls = do
   ls' <- foldM (\acc req -> do  (_, acc') <- runCommand req acc
                                 return acc') ls requests
   -- fetch results
   (res, ls'') <- runCommand (LsReqFetch nRes) ls'
   case res of
-    (LsFetch (Just r)) -> return $ (LsRespBatch (Right r), ls'')
-    (LsFetch Nothing) -> return $ (LsRespBatch (Left "Batch: could not read results"), ls'')
-    _ -> return $ (LsRespBatch (Left "Batch: bad response"), ls'')
+    LsRespFetch r -> return $ (LsRespBatch r, ls'')
+    LsRespError err -> return $ (LsRespError err, ls'')
+    _ -> return $ (LsRespError "Batch: bad response", ls'')
 
