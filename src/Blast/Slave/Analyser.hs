@@ -48,14 +48,6 @@ data SExp (k::Kind) a where
 
 
 
-{-}
-nextIndex :: (MonadIO m) => StateT Int m Int
-nextIndex = do
-  index <- get
-  put (index+1)
-  return index
--}
-
 instance (MonadLoggerIO m) => Builder m SExp where
   makeRApply i f a = do
     k <- liftIO V.newKey
@@ -86,7 +78,6 @@ instance Indexable SExp where
 type Cacher = BS.ByteString -> V.Vault -> V.Vault
 type CacherReader = V.Vault -> Maybe BS.ByteString
 type UnCacher = V.Vault -> V.Vault
---type IsCached = V.Vault -> Bool
 
 data NodeTypeInfo =
   NtRMap RMapInfo
@@ -127,22 +118,9 @@ getLocalVal cvt vault key  =
   Just v -> right v
   Nothing -> left $ RcRespCacheMiss cvt
 
-{-}
-getRemoteClosure :: Int -> InfoMap -> RemoteClosureImpl
-getRemoteClosure n m =
-  case M.lookup n m of
-    Just (GenericInfo _ (NtRMap (MkRMapInfo cs _ _)))   -> cs
-    _ -> error ("Closure does not exist for node: " ++ show n)
--}
 makeUnCacher :: V.Key a -> V.Vault -> V.Vault
 makeUnCacher k vault = V.delete k vault
 
-{-makeIsCached :: V.Key a -> V.Vault -> Bool
-makeIsCached k vault =
-    case V.lookup k vault of
-    Just _ -> True
-    Nothing -> False
--}
 mkRemoteClosure :: forall a b m . (MonadLoggerIO m) =>
   V.Key a -> V.Key b -> ExpClosure SExp a b -> StateT InfoMap m RemoteClosureImpl
 mkRemoteClosure keya keyb (ExpClosure e f) = do
@@ -171,8 +149,7 @@ wrapClosure keyc keya keyb f =
 visitLocalExp :: Int -> InfoMap -> InfoMap
 visitLocalExp n m =
   case M.lookup n m of
-  Just (GenericInfo _ _ ) -> m --error ("Node " ++ show n ++ " has already been visited")
-  Nothing -> M.insert n (GenericInfo S.empty NtLExpNoCache) m
+  Just (GenericInfo _ _ ) -> m
 
 
 
@@ -273,7 +250,7 @@ analyseRemote (SRApply n keyb cs@(ExpClosure ce _) a) = do
     put $ visitRApply cs' m
   visitRApply cs' m =
     case M.lookup n m of
-    Just (GenericInfo _ _) -> m --error ("RMap Node " ++ show n ++ " has already been visited")
+    Just (GenericInfo _ _) -> m
     Nothing -> M.insert n (GenericInfo S.empty (NtRMap (MkRMapInfo cs' (makeUnCacher keyb) Nothing))) m
 
 analyseRemote (SRConst n key _) = do
