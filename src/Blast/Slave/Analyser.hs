@@ -146,10 +146,12 @@ wrapClosure keyc keya keyb f =
         let vault' = V.insert keyb brdd vault
         return (RcRespOk, vault')
 
+
 visitLocalExp :: Int -> InfoMap -> InfoMap
 visitLocalExp n m =
   case M.lookup n m of
-  Just (GenericInfo _ _ ) -> m
+    Just (GenericInfo _ _ ) -> m
+    Nothing -> M.insert n (GenericInfo S.empty NtLExpNoCache) m
 
 
 

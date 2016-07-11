@@ -11,10 +11,12 @@ Portability : POSIX
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -43,14 +45,15 @@ import            Blast
 import            Blast.Distributed.Interface
 
 
+
 -- | Runs a computation locally.
 -- Uses threads to distribute the remote computations.
-runRec :: forall a b.
-  (S.Serialize a, S.Serialize b) =>
-  Int                       -- ^ Number of slaves.
-  -> Config                 -- ^ Configuration.
-  -> JobDesc a b            -- ^ Job to execute.
-  -> LoggingT IO (a, b)     -- ^ Results.
+runRec :: forall a b m.
+  (m ~ LoggingT IO, S.Serialize a, S.Serialize b) =>
+  Int                                               -- ^ Number of slaves.
+  -> Config                                         -- ^ Configuration.
+  -> JobDesc a b                                    -- ^ Job to execute.
+  -> m (a, b)                                       -- ^ Results.
 runRec nbSlaves config jobDesc = do
   controller <- createController config nbSlaves jobDesc
   doRunRec config controller jobDesc

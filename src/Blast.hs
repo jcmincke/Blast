@@ -21,6 +21,7 @@ module Blast
 
   -- * Classes.
 
+  , Builder
   , Chunkable (..)
   , UnChunkable (..)
   , ChunkableFreeVar (..)

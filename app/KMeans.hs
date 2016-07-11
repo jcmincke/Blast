@@ -117,7 +117,6 @@ expGenerator nbPoints (centers, var) = do
 
 criterion tol (_, x) (_, y) _ = abs (x - y) < tol
 
-jobDesc :: JobDesc ([Point], Double) [Point]
 jobDesc = MkJobDesc ([(0, 0), (1, 1)], 1000.0) (expGenerator 1000) reporting (criterion 0.1)
 
 

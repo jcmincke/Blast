@@ -16,6 +16,7 @@ Portability : POSIX
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -64,8 +65,15 @@ instance Indexable Exp where
   getIndex (Collect n _) = n
   getIndex (LApply n _ _) = n
 
+
+
+
+
 -- | Runs a computation using a simple interpreter. Execute all computations on just one thread.
-runRec :: forall a b m.(Builder m Exp, MonadLoggerIO m) => Bool -> JobDesc a b -> m (a, b)
+runRec :: forall a b m. (MonadLoggerIO m) =>
+  Bool
+  -> JobDesc a b
+  -> m (a, b)
 runRec shouldOptimize (jobDesc@MkJobDesc {..}) = do
   let program = computationGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program

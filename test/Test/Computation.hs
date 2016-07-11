@@ -1,8 +1,10 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module Test.Computation
 where
@@ -22,73 +24,71 @@ import            Test.Framework.Providers.QuickCheck2 (testProperty)
 import            Test.QuickCheck
 import            Test.QuickCheck.Arbitrary
 import            Test.QuickCheck.Monadic
+import            Test.QuickCheck.Random
+import            Test.QuickCheck.Gen
 
 import            Blast as S
-import            Blast.Syntax as S
+import            Blast.Runner.Local as Loc
 import            Blast.Runner.Simple as S
+import            Blast.Syntax as S
 
-instance Show (a->b) where
-  show _ = "a fun"
+import            Blast.Distributed.Interface as I
 
-instance Show (JobDesc a b) where
-  show _ = "job desc"
+
+
+generateOne :: Int -> Gen a -> a
+generateOne seed (MkGen g) =
+  g qCGen 30
+  where
+  qCGen = mkQCGen seed
 
 tests = [
    testProperty "testComputation" testComputation
     ]
 
+
+
 testComputation :: Property
 testComputation  =
---  monadicIO $ forAllM (choose (0::Int, 1)) prop
-  monadicIO $ forAllM gen1 prop
+  monadicIO $ forAllM arbitrary prop
+
+
+
+
+prop :: Int -> PropertyM IO Bool
+prop seed = do
+  (a1, b1::Int) <- liftIO $ prop1 (jobDescFun ())
+  (a2, b2::Int) <- liftIO $ prop2 (jobDescFun ())
+  return $ (a1, b1) == (a2, b2)
   where
-  gen1 = compGen 1
-  prop jobDesc = do
-    (a,b::Int) <- liftIO $ runStdoutLoggingT $ S.runRec False jobDesc
-    liftIO $ print "dd"
-    return True
+  depth = 10
+  jobDescFun () =
+    let proc a = do
+          let computation = generateOne seed (compGen depth)
 
-
-{-}
-simple :: IO ()
-simple = do
-  (a,b) <- runStdoutLoggingT $ S.runRec False jobDesc
-  print a
-  print b
-
-testComputation =
-  monadicIO $ forAllM (compGen 1) prop
-  where
-  prop ::  (Int -> Computation m e 'Local (Int, Int)) -> IO Bool
-  prop computation = do
-    (a,b) <- runStdoutLoggingT $ S.runRec False jobDesc
-    return True
-    where
-    jobDesc = MkJobDesc 0
-                computation
-                (\a _ -> return a)
-                (\_ x _  -> x==1)
--}
-
-
-
-compGen :: forall m e. (Monad m, Builder m e) => Int -> Gen (JobDesc Int Int)
-compGen n = do
-  let remotes0 = [rconst []]
-  let locals0 = [lconst (0::Int)]
-  (computation :: (Computation m e 'Local Int)) <- go n remotes0 locals0
-
-  let (proc :: Int -> (Computation m e 'Local (Int, Int))) = \a -> do
           b <- computation
           a' <- lconst (a+1)
           r <- ((,) <$$> a' <**> b)
           return r
-  let jobDesc = MkJobDesc (0::Int)
-                  proc
-                  (\a _ -> return a)
-                  (\_ x _  -> x==1)
-  return jobDesc
-  where
+        jobDesc = MkJobDesc (0::Int)
+                    proc
+                    (\a _ -> return a)
+                    (\_ x _  -> x==1)
+    in jobDesc
+
+
+prop1 :: JobDesc Int Int -> IO (Int, Int)
+prop1 jobDesc = do
+    (a1, b1::Int) <- runStdoutLoggingT $ S.runRec False jobDesc
+    return (a1, b1)
+
+
+prop2 :: JobDesc Int Int -> IO (Int, Int)
+prop2 jobDesc = do
+    let cf = defaultConfig { statefullSlaves = True, shouldOptimize = False }
+    (a2, b2::Int) <- runStdoutLoggingT $ Loc.runRec 1 cf jobDesc
+    return (a2, b2)
+
 
 go :: forall m e. (Monad m, Builder m e) => Int -> [Computation m e 'Remote [Int]] -> [Computation m e 'Local Int] -> Gen (Computation m e 'Local Int)
 go 0 _ locals = elements locals
@@ -102,9 +102,19 @@ go n remotes locals = do
         locals' <- addLocal remotes locals
         go (n-1) remotes locals'
 
+compGen :: forall m e. (Monad m, Builder m e) => Int -> Gen (Computation m e 'Local Int)
+compGen n = do
+  let remotes0 = [rconst []]
+  let locals0 = [lconst (0::Int)]
+  computation <- go n remotes0 locals0
+  return computation
+  where
 
 
-addRemote :: forall m e. (Monad m, Builder m e) => [Computation m e 'Remote [Int]] -> [Computation m e 'Local Int] -> Gen [Computation m e 'Remote [Int]]
+addRemote :: forall m e. (Monad m, Builder m e)
+  => [Computation m e 'Remote [Int]]
+  -> [Computation m e 'Local Int]
+  -> Gen [Computation m e 'Remote [Int]]
 addRemote remotes locals = do
   frequency [(1, gen1), (1, gen2)]
   where
@@ -124,13 +134,20 @@ addRemote remotes locals = do
     let (c :: Computation m e 'Remote [Int]) = rconst vals
     return (c:remotes)
 
-addLocal ::forall m e. (Monad m, Builder m e) => [Computation m e 'Remote [Int]] -> [Computation m e 'Local Int] -> Gen [Computation m e 'Local Int]
+
+
+
+addLocal ::forall m e. (Monad m, Builder m e)
+  => [Computation m e 'Remote [Int]]
+  -> [Computation m e 'Local Int]
+  -> Gen [Computation m e 'Local Int]
 addLocal remotes locals = do
   frequency [(1, gen1), (1, gen2), (1, gen3)]
+  gen3
   where
   gen1 = do
     remote <- elements remotes
-    let (c::Computation m e 'Local Int) = do
+    let c = do
               r <- remote
               a <- S.collect r
               zero <- lconst (0::Int)
@@ -138,14 +155,15 @@ addLocal remotes locals = do
     return (c:locals)
   gen2 = do
     v <- choose (-1, 1)
-    let (c:: Computation m e 'Local Int) = lconst v
+    let c = lconst v
     return (c:locals)
   gen3 = do
     l1 <- elements locals
     l2 <- elements locals
-    let (c:: Computation m e 'Local Int) = do
+    let c = do
           a1 <- l1
           a2 <- l2
           (+) <$$> a1 <**> a2
     return (c:locals)
+
 

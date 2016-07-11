@@ -89,8 +89,6 @@ expGenerator nbFiles () = do
 --  FoldFun e a r -> ([r] -> b) -> e 'Local r -> e 'Remote (t a) -> ProgramT (Syntax m) m (e 'Local b)
 
 
-
---jobDesc :: JobDesc ([Point], Double) [Point]
 jobDesc = MkJobDesc () (expGenerator 8) reporting (\_ _ _ -> True)
 
 

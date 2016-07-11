@@ -71,8 +71,9 @@ expg c1 () = do
   r <- c1
   (\v -> ((),v)) <$$> r
 
-jobDesc2 :: JobDesc () [Int]
-jobDesc2 = MkJobDesc () (expg c1) (\_ _ -> return ()) (\_ _ _ -> True)
+
+--  computation = c1
+{-
 
 t :: (MonadLoggerIO m) =>  ProgramT (Syntax m) m (e 'Local [Int]) -> m [Int]
 t computation =  do
@@ -83,9 +84,8 @@ t computation =  do
 jd :: JobDesc () [Int]
 jd = MkJobDesc () (expg c1) (\() _ -> return ()) (\() () _ -> True)
 
-
---  computation = c1
-{-
+jobDesc2 :: JobDesc () [Int]
+jobDesc2 = MkJobDesc () (expg c1) (\_ _ -> return ()) (\_ _ _ -> True)
 
 runOnce :: forall a e m.(Monad m, Builder m e, MonadLoggerIO m) =>
   Bool -> ProgramT (Syntax m) m (e 'Local a) ->  m () -- ProgramT (Syntax m) m (e 'Local ((), a))

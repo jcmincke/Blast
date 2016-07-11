@@ -181,7 +181,7 @@ startClientRpc :: forall a b. (S.Serialize a, S.Serialize b, CommandClass RpcSta
   RpcConfig
   -> JobDesc a b
   -> (Int -> Closure (Process()))
-  -> (a -> b -> IO())
+  -> (a -> b -> IO ())
   -> Backend
   -> [NodeId]
   -> Process ()

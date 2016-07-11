@@ -47,13 +47,6 @@ data MExp (k::Kind) a where
 
 
 
-nextIndex :: (MonadIO m) => StateT Int m Int
-nextIndex = do
-  index <- get
-  put (index+1)
-  return index
-
-
 instance (MonadLoggerIO m) => Builder m MExp where
   makeRApply i f a = do
     return $ MRApply i f a
