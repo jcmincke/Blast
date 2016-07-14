@@ -179,7 +179,7 @@ rfold fp zero e = do
 
 -- | Remote fold followed by a local aggregation.
 -- Correct if and only if the folding function is both associative and commutative.
-rfold' :: (Monad m, Applicative t, Traversable t, S.Serialize r, UnChunkable [r], Builder m e) =>
+rfold' :: (Monad m, Applicative t, Traversable t, S.Serialize r, Builder m e) =>
   FoldFun e a r -> ([r] -> b) -> e 'Local r -> e 'Remote (t a) -> Computation m e 'Local b
 rfold' f aggregator zero a = do
   rs <- rfold f zero a
@@ -187,27 +187,18 @@ rfold' f aggregator zero a = do
   aggregator <$$> ars
 
 
-
 instance Joinable a b where
   join a b = Just (a, b)
-
-
-
-instance (Eq k) => Joinable (KeyedVal k a) (KeyedVal k b) where
-  join (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = Just (KeyedVal k1 a, KeyedVal k2 b)
-  join (KeyedVal _ _) (KeyedVal _ _) = Nothing
-
-
 
 
 fromList' :: (Applicative t, Foldable t, Monoid (t a)) => [a] -> t a
 fromList' l = foldMap pure l
 
--- | Remote join operation between 2 collections.
 rjoin :: (Monad m, Applicative t, Foldable t, Foldable t1, Foldable t2,
-          Monoid (t (a, b)), S.Serialize (t1 a), Builder m e,
-          ChunkableFreeVar (t1 a), UnChunkable (t1 a), Joinable a b) =>
-   e 'Remote (t1 a) -> e 'Remote (t2 b) -> Computation m e 'Remote (t (a, b))
+          Monoid (t (a1, a2)), S.Serialize (t1 a1),
+          Builder m e, UnChunkable (t1 a1) (t1 a1), Joinable a1 a2
+          , ChunkableFreeVar (t1 a1)) =>
+   e 'Remote (t1 a1) -> e 'Remote (t2 a2) -> Computation m e 'Remote (t (a1, a2))
 rjoin a b = do
   a' <- collect a
   let cs = ExpClosure a' (\av bv -> return $ fromList' $ catMaybes [join x y | x <- toList av, y <- toList bv])
@@ -215,6 +206,10 @@ rjoin a b = do
 
 data KeyedVal k v = KeyedVal k v
   deriving (Generic, S.Serialize, Show)
+
+instance (Eq k) => Joinable (KeyedVal k a) (KeyedVal k b) where
+  join (KeyedVal k1 a) (KeyedVal k2 b) | k1 == k2 = Just (KeyedVal k1 a, KeyedVal k2 b)
+  join (KeyedVal _ _) (KeyedVal _ _) = Nothing
 
 
 data OptiT t k v = OptiT (t (KeyedVal k v))
@@ -225,7 +220,7 @@ instance (Show (t (KeyedVal k v))) => Show (OptiT t k v) where
 
 instance (S.Serialize (t (KeyedVal k v))) => S.Serialize (OptiT t k v)
 
-instance  {-# OVERLAPPING #-} (Hashable k) => Chunkable [KeyedVal k v] where
+instance  {-# OVERLAPPING #-} (Hashable k) => Chunkable [KeyedVal k v] [KeyedVal k v] where
   chunk nbBuckets l =
     Vc.reverse $ Vc.generate nbBuckets (\i -> buckets M.! i)
     where
@@ -234,11 +229,12 @@ instance  {-# OVERLAPPING #-} (Hashable k) => Chunkable [KeyedVal k v] where
       i = hash k `mod` nbBuckets
       in M.insertWith (++) i [kv] bucket'
 
-instance {-# OVERLAPPING #-} (Hashable k) => UnChunkable [KeyedVal k v] where
-  unChunk l = L.concat l
 
 
-instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v)), Chunkable (t (KeyedVal k v))) => ChunkableFreeVar (OptiT t k v) where
+instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v))
+         , Chunkable (t (KeyedVal k v)) (t (KeyedVal k v))
+          ) =>
+  ChunkableFreeVar (OptiT t k v) where
   chunk' n (OptiT tkvs) = fmap OptiT $ chunk n tkvs
 
 
@@ -246,13 +242,13 @@ instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v)), Chunkable (t (Ke
 rKeyedJoin
   :: (Eq k, Monad m, Applicative t, Applicative t1,
       Foldable t, Foldable t1, Foldable t2,
-      Monoid (t (KeyedVal k (t3, t4))), Monoid (t1 (KeyedVal k t3)),
-      UnChunkable (t1 (KeyedVal k t3)), Chunkable (t1 (KeyedVal k t3)),
-      Builder m e, S.Serialize (t1 (KeyedVal k t3))) =>
+      Monoid (t (KeyedVal k (a, b))), Monoid (t1 (KeyedVal k a)),
+      UnChunkable (t1 (KeyedVal k a)) (t1 (KeyedVal k a)), Chunkable (t1 (KeyedVal k a)) (t1 (KeyedVal k a)),
+      Builder m e, S.Serialize (t1 (KeyedVal k a))) =>
      Proxy t
-     -> e 'Remote (t1 (KeyedVal k t3))
-     -> e 'Remote (t2 (KeyedVal k t4))
-     -> Computation m e 'Remote (t (KeyedVal k (t3, t4)))
+     -> e 'Remote (t1 (KeyedVal k a))
+     -> e 'Remote (t2 (KeyedVal k b))
+     -> Computation m e 'Remote (t (KeyedVal k (a, b)))
 rKeyedJoin _ a b = do
   a' <- collect a
   ja <- OptiT <$$> a'
@@ -278,7 +274,7 @@ rangeToList :: Range -> [Int]
 rangeToList (Range a b) = [a .. (b-1)]
 
 
-instance Chunkable Range where
+instance Chunkable Range Range where
   chunk nbBuckets (Range minV maxV) =
     Vc.fromList $ L.reverse $ go [] minV nbBuckets
     where

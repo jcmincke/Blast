@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -12,7 +13,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-
 
 
 module Blast.Types
@@ -96,14 +96,14 @@ data Kind = Remote | Local
 type Partition a = Vc.Vector a
 
 -- | Values that can be partitionned.
-class Chunkable a where
+class Chunkable a b | a -> b, b -> a where
   -- | Given a value "a", chunk it into 'n' parts.
-  chunk :: Int -> a -> Partition a
+  chunk :: Int -> a -> Partition b
 
 -- | Values that can be reconstructed from a list of parts.
-class UnChunkable a where
+class UnChunkable b a | b -> a, b -> a where
   -- | Given a list of parts, reconstruct a value.
-  unChunk :: [a] -> a
+  unChunk :: [b] -> a
 
 -- | Values that can be reconstructed from a list of parts.
 -- This applies to local values that are captured by a closure.
@@ -131,17 +131,17 @@ class Indexable e where
 
 class (Indexable e) => Builder m e where
   makeRApply :: Int -> ExpClosure e a b -> e 'Remote a -> m (e 'Remote b)
-  makeRConst :: (Chunkable a, S.Serialize a) => Int -> a -> m (e 'Remote a)
+  makeRConst :: (Chunkable a b, S.Serialize b) => Int -> a -> m (e 'Remote b)
   makeLConst :: Int -> a -> m (e 'Local a)
-  makeCollect :: (UnChunkable a, S.Serialize a) => Int -> e 'Remote a -> m (e 'Local a)
+  makeCollect :: (UnChunkable b a, S.Serialize b) => Int -> e 'Remote b -> m (e 'Local a)
   makeLApply :: Int -> e 'Local (a -> b) -> e 'Local a -> m (e 'Local b)
   fuse :: GenericInfoMap () -> Int -> e 'Remote a -> m (e 'Remote a, GenericInfoMap (), Int)
 
 data Syntax m e where
   StxRApply :: (Builder m e) => ExpClosure e a b -> e 'Remote a -> Syntax m (e 'Remote b)
-  StxRConst :: (Builder m e, Chunkable a, S.Serialize a) => a -> Syntax m (e 'Remote a)
+  StxRConst :: (Builder m e, Chunkable a b, S.Serialize b) => a -> Syntax m (e 'Remote b)
   StxLConst :: (Builder m e) => a -> Syntax m (e 'Local a)
-  StxCollect :: (Builder m e, UnChunkable a, S.Serialize a) => e 'Remote a -> Syntax m (e 'Local a)
+  StxCollect :: (Builder m e, UnChunkable b a, S.Serialize b) => e 'Remote b -> Syntax m (e 'Local a)
   StxLApply :: (Builder m e) => e 'Local (a -> b) -> e 'Local a -> Syntax m (e 'Local b)
 
 -- | Applies a ExpClosure to remote value.
@@ -152,8 +152,8 @@ rapply' :: (Builder m e)
 rapply' f a = singleton (StxRApply f a)
 
 -- | Creates a remote value.
-rconst :: (S.Serialize a, Chunkable a) =>
-  a -> RemoteComputation a
+rconst :: (S.Serialize b, Chunkable a b) =>
+  a -> RemoteComputation b
 rconst a = singleton (StxRConst a)
 
 -- | Creates a local value.
@@ -161,8 +161,8 @@ lconst :: a -> LocalComputation a
 lconst a = singleton (StxLConst a)
 
 -- | Creates a local value from a remote value
-collect :: (S.Serialize a, Builder m e, UnChunkable a) =>
-  e 'Remote a -> Computation m e 'Local a
+collect :: (S.Serialize b, Builder m e, UnChunkable b a) =>
+  e 'Remote b -> Computation m e 'Local a
 collect a = singleton (StxCollect a)
 
 -- | Applies a closure to a local value.
@@ -300,7 +300,7 @@ instance {-# OVERLAPPABLE #-} ChunkableFreeVar a
 instance ChunkableFreeVar ()
 
 
-instance {-# OVERLAPPABLE #-} Chunkable [a] where
+instance {-# OVERLAPPABLE #-} Chunkable [a] [a] where
   chunk nbBuckets l =
     Vc.reverse $ Vc.fromList $ go [] nbBuckets l
     where
@@ -309,7 +309,7 @@ instance {-# OVERLAPPABLE #-} Chunkable [a] where
     len = L.length l
     nbPerBucket = len `div` nbBuckets
 
-instance {-# OVERLAPPABLE #-} UnChunkable [a] where
+instance {-# OVERLAPPABLE #-} UnChunkable [a] [a] where
   unChunk l = L.concat l
 
 

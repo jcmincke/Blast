@@ -167,8 +167,8 @@ fetchOneSlaveResults slaveId e = do
     LsRespError err -> error ("Cannot fetch results for node: "++ err)
     _ -> error ( "Should not reach here")
 
-fetchResults :: (S.Serialize r, MonadIO m, UnChunkable r, CommandClass s x) =>
-  MExp 'Remote r -> StateT (s x, V.Vault, InfoMap) m r
+fetchResults :: (S.Serialize r, MonadIO m, UnChunkable r a, CommandClass s x) =>
+  MExp 'Remote r -> StateT (s x, V.Vault, InfoMap) m a
 fetchResults e = do
   s <- getRemote
   let nbSlaves = getNbSlaves s
@@ -216,7 +216,7 @@ unCacheLocal e = do
   _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (unCacheLocalOneSlave slaveId e) st) slaveIds
   return ()
 
-runRemote ::(CommandClass s x, MonadLoggerIO m, S.Serialize a, UnChunkable a) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m a
+runRemote ::(CommandClass s x, MonadLoggerIO m, S.Serialize b, UnChunkable b a) => MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
 runRemote e = do
   prepareRunRemote e
   s <- getRemote
@@ -265,8 +265,8 @@ doRunRemoteStatefull e@(MRConst _ key a) = do
   _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlaveStatefull slaveId e) st) slaveIds
   return ()
 
-doRunRemoteStateless ::(CommandClass s x, MonadLoggerIO m, S.Serialize a, UnChunkable a)
-  => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m a
+doRunRemoteStateless :: forall a b m s x. (CommandClass s x, MonadLoggerIO m, S.Serialize b, UnChunkable b a)
+  => MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
 doRunRemoteStateless oe@(MRApply n _ _) = do
   s <- getRemote
   let nbSlaves = getNbSlaves s
@@ -285,12 +285,14 @@ doRunRemoteStateless oe@(MRApply n _ _) = do
     case handleRpcError aE of
       LsRespBatch bs ->
         case S.decode bs of
-          Right a -> return a
+          Right a -> return (a::b)
           Left err -> error ("Cannot decode value from a batch execution: "++err)
       LsRespError err -> error ("Batch error: "++err)
       _ -> error ( "Should not reach here")
 
-doRunRemoteStateless (MRConst _ _ a) = return a
+-- TODO uncomment
+doRunRemoteStateless (MRConst _ _ a) = do
+  return $ unChunk [(chunk 1 a Vc.! 0)]
 
 
 

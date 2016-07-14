@@ -3,6 +3,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE TypeFamilies #-}
 
 
 module Main where
@@ -32,8 +35,6 @@ import qualified  Blast.Runner.Simple as S
 import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH
 
---c1 :: (Monad m, Builder m e) =>
---   ProgramT (Syntax m) m (e 'Local [Int])
 c1 :: LocalComputation [Int]
 c1 = do
       r1 <- rconst [ (2::Int)| _ <- [1..10::Int]]

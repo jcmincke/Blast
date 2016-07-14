@@ -41,9 +41,9 @@ import            Blast.Common.Analyser
 
 data SExp (k::Kind) a where
   SRApply :: Int -> V.Key b -> ExpClosure SExp a b -> SExp 'Remote a -> SExp 'Remote b
-  SRConst ::  (Chunkable a, S.Serialize a) => Int -> V.Key a -> a -> SExp 'Remote a
+  SRConst ::  (Chunkable a b, S.Serialize b) => Int -> V.Key b -> a -> SExp 'Remote b
   SLConst :: Int -> V.Key a -> a -> SExp 'Local a
-  SCollect :: (UnChunkable a, S.Serialize a) => Int -> V.Key a -> SExp 'Remote a -> SExp 'Local a
+  SCollect :: (UnChunkable b a, S.Serialize b) => Int -> V.Key a -> SExp 'Remote b -> SExp 'Local a
   SLApply :: Int -> V.Key b -> SExp 'Local (a -> b) -> SExp 'Local a -> SExp 'Local b
 
 

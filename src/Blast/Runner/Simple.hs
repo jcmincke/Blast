@@ -32,14 +32,15 @@ import Debug.Trace
 import            Control.Monad.IO.Class
 import            Control.Monad.Logger
 import qualified  Data.Map as M
+import qualified  Data.Vector as Vc
 
 import            Blast.Types
 
 data Exp (k::Kind) a where
   RApply :: Int -> ExpClosure Exp a b -> Exp 'Remote a -> Exp 'Remote b
-  RConst :: Int -> a -> Exp 'Remote a
+  RConst :: (Chunkable a b) => Int -> a -> Exp 'Remote b
   LConst :: Int -> a -> Exp 'Local a
-  Collect :: Int -> Exp 'Remote a -> Exp 'Local a
+  Collect :: (UnChunkable b a) => Int -> Exp 'Remote b -> Exp 'Local a
   LApply :: Int -> Exp 'Local (a -> b) -> Exp 'Local a -> Exp 'Local b
 
 
@@ -101,10 +102,15 @@ runRemote (RApply _ cs e) = do
   e' <- runRemote e
   trace "RApply" $ f' e'
 
-runRemote (RConst _ e) = return e
+runRemote (RConst _ e) =
+  return (chunk 1 e Vc.! 0)
+  where
+
 
 runLocal ::  Exp 'Local a -> IO a
-runLocal (Collect _ e) = runRemote e
+runLocal (Collect _ e) = do
+  b <- runRemote e
+  return $ unChunk [b]
 runLocal (LConst _ a) = return a
 runLocal (LApply _ f e) = do
   f' <- runLocal f
