@@ -41,9 +41,9 @@ import            Blast.Common.Analyser
 
 data SExp (k::Kind) a where
   SRApply :: Int -> V.Key (Data b) -> ExpClosure SExp a b -> SExp 'Remote a -> SExp 'Remote b
-  SRConst ::  (Chunkable a b, S.Serialize b) => Int -> V.Key (Data b) -> a -> SExp 'Remote b
+  SRConst ::  (S.Serialize b) => Int -> V.Key (Data b) -> a -> SExp 'Remote b
   SLConst :: Int -> V.Key a -> a -> SExp 'Local a
-  SCollect :: (UnChunkable b a, S.Serialize b) => Int -> V.Key a -> SExp 'Remote b -> SExp 'Local a
+  SCollect :: (S.Serialize b) => Int -> V.Key a -> SExp 'Remote b -> SExp 'Local a
   SLApply :: Int -> V.Key b -> SExp 'Local (a -> b) -> SExp 'Local a -> SExp 'Local b
 
 
@@ -52,13 +52,13 @@ instance (MonadLoggerIO m) => Builder m SExp where
   makeRApply i f a = do
     k <- liftIO V.newKey
     return $ SRApply i k f a
-  makeRConst i a = do
+  makeRConst i _ a = do
     k <- liftIO V.newKey
     return $ SRConst i k a
   makeLConst i a = do
     k <- liftIO V.newKey
     return $ SLConst i k a
-  makeCollect i a = do
+  makeCollect i _ a = do
     k <- liftIO V.newKey
     return $ SCollect i k a
   makeLApply i f a = do

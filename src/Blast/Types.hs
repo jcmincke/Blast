@@ -25,6 +25,8 @@ module Blast.Types
   , Chunkable (..)
   , UnChunkable (..)
   , ChunkableFreeVar (..)
+  , ChunkFun
+  , UnChunkFun
   , Fun (..)
   , FoldFun (..)
   , ExpClosure (..)
@@ -34,8 +36,10 @@ module Blast.Types
   , GenericInfoMap
   , GenericInfo (..)
   , rapply'
+  , rconst'
   , rconst
   , lconst
+  , collect'
   , collect
   , lapply
   , rapply
@@ -138,19 +142,22 @@ data ExpClosure e a b =
 class Indexable e where
   getIndex :: e (k::Kind) a -> Int
 
+type ChunkFun a b = Int -> a -> Partition b
+type UnChunkFun b a = [b] -> a
+
 class (Indexable e) => Builder m e where
   makeRApply :: Int -> ExpClosure e a b -> e 'Remote a -> m (e 'Remote b)
-  makeRConst :: (Chunkable a b, S.Serialize b) => Int -> a -> m (e 'Remote b)
+  makeRConst :: (S.Serialize b) => Int -> ChunkFun a b -> a -> m (e 'Remote b)
   makeLConst :: Int -> a -> m (e 'Local a)
-  makeCollect :: (UnChunkable b a, S.Serialize b) => Int -> e 'Remote b -> m (e 'Local a)
+  makeCollect :: (S.Serialize b) => Int -> UnChunkFun b a -> e 'Remote b -> m (e 'Local a)
   makeLApply :: Int -> e 'Local (a -> b) -> e 'Local a -> m (e 'Local b)
   fuse :: GenericInfoMap () -> Int -> e 'Remote a -> m (e 'Remote a, GenericInfoMap (), Int)
 
 data Syntax m e where
   StxRApply :: (Builder m e) => ExpClosure e a b -> e 'Remote a -> Syntax m (e 'Remote b)
-  StxRConst :: (Builder m e, Chunkable a b, S.Serialize b) => a -> Syntax m (e 'Remote b)
+  StxRConst :: (Builder m e, S.Serialize b) => ChunkFun a b -> a -> Syntax m (e 'Remote b)
   StxLConst :: (Builder m e) => a -> Syntax m (e 'Local a)
-  StxCollect :: (Builder m e, UnChunkable b a, S.Serialize b) => e 'Remote b -> Syntax m (e 'Local a)
+  StxCollect :: (Builder m e, S.Serialize b) => UnChunkFun b a -> e 'Remote b -> Syntax m (e 'Local a)
   StxLApply :: (Builder m e) => e 'Local (a -> b) -> e 'Local a -> Syntax m (e 'Local b)
 
 -- | Applies a ExpClosure to remote value.
@@ -160,19 +167,28 @@ rapply' :: (Builder m e)
   -> Computation m e 'Remote b
 rapply' f a = singleton (StxRApply f a)
 
+-- | Creates a remote value, passing a specific chunk function.
+rconst' :: (S.Serialize b) =>
+  ChunkFun a b -> a -> RemoteComputation b
+rconst' f a = singleton (StxRConst f a)
+
 -- | Creates a remote value.
-rconst :: (S.Serialize b, Chunkable a b) =>
-  a -> RemoteComputation b
-rconst a = singleton (StxRConst a)
+rconst :: (S.Serialize b, Chunkable a b) => a -> RemoteComputation b
+rconst a = rconst' chunk a
 
 -- | Creates a local value.
 lconst :: a -> LocalComputation a
 lconst a = singleton (StxLConst a)
 
--- | Creates a local value from a remote value
+-- | Creates a local value from a remote value, passing a specific chunk function.
+collect' :: (S.Serialize b, Builder m e) =>
+  UnChunkFun b a ->  e 'Remote b -> Computation m e 'Local a
+collect' f a = singleton (StxCollect f a)
+
+-- | Creates a local value from a remote value, passing a specific chunk function.
 collect :: (S.Serialize b, Builder m e, UnChunkable b a) =>
   e 'Remote b -> Computation m e 'Local a
-collect a = singleton (StxCollect a)
+collect a = collect' unChunk a
 
 -- | Applies a closure to a local value.
 lapply :: (Builder m e) =>
@@ -224,16 +240,16 @@ generateReferenceMap counter refMap p = do
       let refMap'' = reference counter (getIndex ce) refMap'
       let refMap''' = reference counter (getIndex a) refMap''
       generateReferenceMap (counter+1) refMap''' (is e)
-    eval (StxRConst a :>>=  is) = do
-      e <- makeRConst counter a
+    eval (StxRConst f a :>>=  is) = do
+      e <- makeRConst counter f a
       let refMap' = addUnitInfo counter refMap
       generateReferenceMap (counter+1) refMap' (is e)
     eval (StxLConst a :>>=  is) = do
       e <- makeLConst counter a
       let refMap' = addUnitInfo counter refMap
       generateReferenceMap (counter+1) refMap' (is e)
-    eval (StxCollect a :>>=  is) = do
-      e <- makeCollect counter a
+    eval (StxCollect f a :>>=  is) = do
+      e <- makeCollect counter f a
       let refMap' = addUnitInfo counter refMap
       let refMap'' = reference counter (getIndex a) refMap'
       generateReferenceMap (counter+1) refMap'' (is e)
@@ -259,14 +275,14 @@ build doOptimize refMap counter fuseCounter p = do
                                       then fuse refMap fuseCounter e
                                       else return (e, refMap, fuseCounter)
       build doOptimize refMap' (counter+1) fuseCounter' (is e')
-    eval (StxRConst a :>>=  is) = do
-      e <- makeRConst counter a
+    eval (StxRConst chunkFun a :>>=  is) = do
+      e <- makeRConst counter chunkFun a
       build doOptimize refMap (counter+1) fuseCounter (is e)
     eval (StxLConst a :>>=  is) = do
       e <- makeLConst counter a
       build doOptimize refMap (counter+1) fuseCounter (is e)
-    eval (StxCollect a :>>=  is) = do
-      e <- makeCollect counter a
+    eval (StxCollect f a :>>=  is) = do
+      e <- makeCollect counter f a
       build doOptimize refMap (counter+1) fuseCounter (is e)
     eval (StxLApply f a :>>=  is) = do
       e <- makeLApply counter f a

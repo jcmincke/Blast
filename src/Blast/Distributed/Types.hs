@@ -87,13 +87,12 @@ resetCommand  :: BS.ByteString    -- ^ The serialized value of the seed.
               -> SlaveRequest     -- ^ The reset request
 resetCommand seedBS = LsReqReset seedBS
 
+
 instance Binary SlaveRequest
 instance Binary SlaveResponse
 
 instance NFData SlaveResponse
 instance NFData SlaveRequest
 
-instance (Binary a) => Binary (Data a)
-instance (NFData a) => NFData (Data a)
 
 

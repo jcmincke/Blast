@@ -40,9 +40,9 @@ type LocalKey a = V.Key (a, Maybe (Partition BS.ByteString))
 
 data MExp (k::Kind) a where
   MRApply :: Int -> ExpClosure MExp a b -> MExp 'Remote a -> MExp 'Remote b
-  MRConst :: (Chunkable a b, S.Serialize b) => Int -> V.Key (Partition BS.ByteString) -> a -> MExp 'Remote b
+  MRConst :: (S.Serialize b) => Int -> V.Key (Partition BS.ByteString) -> ChunkFun a b -> a -> MExp 'Remote b
   MLConst :: Int -> LocalKey a -> a -> MExp 'Local a
-  MCollect :: (UnChunkable b a, S.Serialize b) => Int -> LocalKey a -> MExp 'Remote b -> MExp 'Local a
+  MCollect :: (S.Serialize b) => Int -> LocalKey a -> UnChunkFun b a -> MExp 'Remote b -> MExp 'Local a
   MLApply :: Int -> LocalKey b -> MExp 'Local (a -> b) -> MExp 'Local a -> MExp 'Local b
 
 
@@ -50,15 +50,15 @@ data MExp (k::Kind) a where
 instance (MonadLoggerIO m) => Builder m MExp where
   makeRApply i f a = do
     return $ MRApply i f a
-  makeRConst i a = do
+  makeRConst i chunkFun a = do
     k <- liftIO V.newKey
-    return $ MRConst i k a
+    return $ MRConst i k chunkFun a
   makeLConst i a = do
     k <- liftIO V.newKey
     return $ MLConst i k a
-  makeCollect i a = do
+  makeCollect i unChunkFun a = do
     k <- liftIO V.newKey
-    return $ MCollect i k a
+    return $ MCollect i k unChunkFun a
   makeLApply i f a = do
     k <- liftIO V.newKey
     return $ MLApply i k f a
@@ -69,9 +69,9 @@ instance (MonadLoggerIO m) => Builder m MExp where
 
 instance Indexable MExp where
   getIndex (MRApply n _ _) = n
-  getIndex (MRConst n _ _) = n
+  getIndex (MRConst n _ _ _) = n
   getIndex (MLConst n _ _) = n
-  getIndex (MCollect n _ _) = n
+  getIndex (MCollect n _ _ _) = n
   getIndex (MLApply n _ _ _) = n
 
 
@@ -79,11 +79,11 @@ instance Indexable MExp where
 
 getRemoteIndex :: MExp 'Remote a -> Int
 getRemoteIndex (MRApply i _ _) = i
-getRemoteIndex (MRConst i _ _) = i
+getRemoteIndex (MRConst i _ _ _) = i
 
 getLocalIndex :: MExp 'Local a -> Int
 getLocalIndex (MLConst i _ _) = i
-getLocalIndex (MCollect i _ _) = i
+getLocalIndex (MCollect i _ _ _) = i
 getLocalIndex (MLApply i _ _ _) = i
 
 
@@ -123,14 +123,14 @@ analyseRemote e@(MRApply n (ExpClosure ce _) a) =
 
 
 
-analyseRemote e@(MRConst n _ _) = unlessM (wasVisitedM n) $ visitRemoteM e
+analyseRemote e@(MRConst n _ _ _) = unlessM (wasVisitedM n) $ visitRemoteM e
 
 
 analyseLocal :: (MonadLoggerIO m) => MExp 'Local a -> StateT InfoMap m ()
 
 analyseLocal e@(MLConst n _ _) = unlessM (wasVisitedM n) $ visitLocalM e
 
-analyseLocal e@(MCollect n _ a) =
+analyseLocal e@(MCollect n _ _ a) =
   unlessM (wasVisitedM n) $ do
     analyseRemote a
     referenceM n (getRemoteIndex a)

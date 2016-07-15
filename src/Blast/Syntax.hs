@@ -180,10 +180,14 @@ rfold fp zero e = do
 -- | Remote fold followed by a local aggregation.
 -- Correct if and only if the folding function is both associative and commutative.
 rfold' :: (Monad m, Applicative t, Traversable t, S.Serialize r, Builder m e) =>
-  FoldFun e a r -> ([r] -> b) -> e 'Local r -> e 'Remote (t a) -> Computation m e 'Local b
+  FoldFun e a r
+  -> ([r] -> b)
+  -> e 'Local r
+  -> e 'Remote (t a)
+  ->  Computation m e 'Local b
 rfold' f aggregator zero a = do
   rs <- rfold f zero a
-  ars <- collect rs
+  ars <- collect' unChunk rs
   aggregator <$$> ars
 
 
@@ -196,11 +200,13 @@ fromList' l = foldMap pure l
 
 rjoin :: (Monad m, Applicative t, Foldable t, Foldable t1, Foldable t2,
           Monoid (t (a1, a2)), S.Serialize (t1 a1),
-          Builder m e, UnChunkable (t1 a1) (t1 a1), Joinable a1 a2
-          , ChunkableFreeVar (t1 a1)) =>
-   e 'Remote (t1 a1) -> e 'Remote (t2 a2) -> Computation m e 'Remote (t (a1, a2))
+          Builder m e,
+          Joinable a1 a2,
+          ChunkableFreeVar (t1 a1),
+          UnChunkable (t1 a1) (t1 a1) ) =>
+  e 'Remote (t1 a1) -> e 'Remote (t2 a2) -> Computation m e 'Remote (t (a1, a2))
 rjoin a b = do
-  a' <- collect a
+  a' <- collect' unChunk a
   let cs = ExpClosure a' (\av bv -> return $ fromList' $ catMaybes [join x y | x <- toList av, y <- toList bv])
   rapply' cs b
 
@@ -239,6 +245,7 @@ instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v))
 
 
 -- | Optimized remote join operation between 2 collections of (key, value) pairs.
+
 rKeyedJoin
   :: (Eq k, Monad m, Applicative t, Applicative t1,
       Foldable t, Foldable t1, Foldable t2,
@@ -250,7 +257,7 @@ rKeyedJoin
      -> e 'Remote (t2 (KeyedVal k b))
      -> Computation m e 'Remote (t (KeyedVal k (a, b)))
 rKeyedJoin _ a b = do
-  a' <- collect a
+  a' <- collect' unChunk a
   ja <- OptiT <$$> a'
   let cs = ExpClosure ja (\(OptiT av) bv -> return $ fromList' $ catMaybes [doJoin x y | x <- toList av, y <- toList bv])
   rapply' cs b

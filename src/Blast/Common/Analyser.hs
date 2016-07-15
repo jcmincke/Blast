@@ -55,6 +55,9 @@ data Data a =
   |NoData
   deriving (Show, Generic)
 
+instance (Binary a) => Binary (Data a)
+instance (NFData a) => NFData (Data a)
+
 referenceM :: forall i m. MonadLoggerIO m =>
                 Int -> Int -> StateT (GenericInfoMap i) m ()
 referenceM parent child = do

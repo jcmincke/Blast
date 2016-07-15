@@ -43,7 +43,7 @@ toData Nothing = NoData
 
 getLocalVaultKey :: MExp 'Local a -> LocalKey a
 getLocalVaultKey (MLConst _ k _) = k
-getLocalVaultKey (MCollect _ k _) = k
+getLocalVaultKey (MCollect _ k _ _) = k
 getLocalVaultKey (MLApply _ k _ _) = k
 
 getRemote :: (Monad m) => StateT (s, V.Vault, InfoMap) m s
@@ -115,7 +115,7 @@ runRemoteOneSlaveStatefull slaveId oe@(MRApply n (ExpClosure ce _) e) = do
     LsRespError err -> error ( "remote call: " ++ err)
     _ -> error ( "Should not reach here")
 
-runRemoteOneSlaveStatefull slaveId (MRConst n key _) = do
+runRemoteOneSlaveStatefull slaveId (MRConst n key _ _) = do
   s <- getRemote
   vault <- getVault
   case V.lookup key vault of
@@ -146,7 +146,7 @@ runRemoteOneSlaveStateless slaveId requests (MRApply n (ExpClosure ce _) e) = do
       let csBs = toData $ getPart slaveId p
       return (LsReqExecute n : LsReqCache ceId csBs : requests')
 
-runRemoteOneSlaveStateless slaveId requests (MRConst n key _) = do
+runRemoteOneSlaveStateless slaveId requests (MRConst n key _ _) = do
   vault <- getVault
   case V.lookup key vault of
     Just partition -> do
@@ -172,15 +172,15 @@ fetchOneSlaveResults slaveId e = do
     LsRespError err -> error ("Cannot fetch results for node: "++ err)
     _ -> error ( "Should not reach here")
 
-fetchResults :: (S.Serialize r, MonadIO m, UnChunkable r a, CommandClass s x) =>
-  MExp 'Remote r -> StateT (s x, V.Vault, InfoMap) m a
-fetchResults e = do
+fetchResults :: (S.Serialize b, MonadIO m, CommandClass s x) =>
+  UnChunkFun b a ->  MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
+fetchResults unChunkFun e = do
   s <- getRemote
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
   st <- get
   r <- liftIO $ mapConcurrently (\slaveId -> evalStateT (fetchOneSlaveResults slaveId e) st) slaveIds
-  return $ unChunk $ catMaybes r
+  return $ unChunkFun $ catMaybes r
 
 
 unCacheRemoteOneSlave :: (CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
@@ -221,15 +221,16 @@ unCacheLocal e = do
   _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (unCacheLocalOneSlave slaveId e) st) slaveIds
   return ()
 
-runRemote ::(CommandClass s x, MonadLoggerIO m, S.Serialize b, UnChunkable b a) => MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
-runRemote e = do
+runRemote ::(CommandClass s x, MonadLoggerIO m, S.Serialize b) =>
+  UnChunkFun b a -> MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
+runRemote unChunkFun e = do
   prepareRunRemote e
   s <- getRemote
   case isStatefullSlave s of
     True -> do
       doRunRemoteStatefull e
-      fetchResults e
-    False -> doRunRemoteStateless e
+      fetchResults unChunkFun e
+    False -> doRunRemoteStateless unChunkFun e
 
 doRunRemoteStatefull ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m ()
 doRunRemoteStatefull oe@(MRApply n (ExpClosure ce _) e) = do
@@ -258,27 +259,27 @@ doRunRemoteStatefull oe@(MRApply n (ExpClosure ce _) e) = do
   return ()
 
 
-doRunRemoteStatefull e@(MRConst _ key a) = do
+doRunRemoteStatefull e@(MRConst _ key chunkFun a) = do
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
-  let partition = fmap S.encode $ chunk nbSlaves a
+  let partition = fmap S.encode $ chunkFun nbSlaves a
   let vault' = V.insert key partition vault
   setVault vault'
   st <- get
   _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlaveStatefull slaveId e) st) slaveIds
   return ()
 
-doRunRemoteStateless :: forall a b m s x. (CommandClass s x, MonadLoggerIO m, S.Serialize b, UnChunkable b a)
-  => MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
-doRunRemoteStateless oe@(MRApply n _ _) = do
+doRunRemoteStateless :: forall a b m s x. (CommandClass s x, MonadLoggerIO m, S.Serialize b)
+  => UnChunkFun b a -> MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
+doRunRemoteStateless unChunkFun oe@(MRApply n _ _) = do
   s <- getRemote
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
   st <- get
   rs <- liftIO $ mapConcurrently (\slaveId -> evalStateT (proc slaveId) st) slaveIds
-  return $ unChunk $ catMaybes rs
+  return $ unChunkFun $ catMaybes rs
   where
   proc slaveId = do
     requests <- runRemoteOneSlaveStateless slaveId [] oe
@@ -297,8 +298,8 @@ doRunRemoteStateless oe@(MRApply n _ _) = do
       _ -> error ( "Should not reach here")
 
 -- TODO uncomment
-doRunRemoteStateless (MRConst _ _ a) = do
-  return $ unChunk [(chunk 1 a Vc.! 0)]
+doRunRemoteStateless unChunkFun (MRConst _ _ chunkFun a) = do
+  return $ unChunkFun [(chunkFun 1 a Vc.! 0)]
 
 
 
@@ -320,11 +321,11 @@ prepareRunRemote (MRApply _ (ExpClosure ce _) e) = do
   return ()
 
 
-prepareRunRemote (MRConst _ key a) = do
+prepareRunRemote (MRConst _ key chunkFun a) = do
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
-  let partition = fmap S.encode $ chunk nbSlaves a
+  let partition = fmap S.encode $ chunkFun nbSlaves a
   let vault' = V.insert key partition vault
   setVault vault'
   return ()
@@ -339,13 +340,13 @@ runLocal (MLConst _ key a) = do
       setVault (V.insert key (a, Nothing) vault)
       return (a, Nothing)
 
-runLocal (MCollect n key e) = do
+runLocal (MCollect n key unChunkFun e) = do
   vault <- getVault
   let cvm = V.lookup key vault
   case cvm of
     Just a -> return a
     Nothing -> do
-      a <- runRemote e
+      a <- runRemote unChunkFun e
       vault' <- getVault
       setVault (V.insert key (a, Nothing) vault')
 

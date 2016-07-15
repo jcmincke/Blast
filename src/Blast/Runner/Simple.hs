@@ -38,21 +38,21 @@ import            Blast.Types
 
 data Exp (k::Kind) a where
   RApply :: Int -> ExpClosure Exp a b -> Exp 'Remote a -> Exp 'Remote b
-  RConst :: (Chunkable a b) => Int -> a -> Exp 'Remote b
+  RConst :: Int -> ChunkFun a b ->  a -> Exp 'Remote b
   LConst :: Int -> a -> Exp 'Local a
-  Collect :: (UnChunkable b a) => Int -> Exp 'Remote b -> Exp 'Local a
+  Collect :: Int -> UnChunkFun b a -> Exp 'Remote b -> Exp 'Local a
   LApply :: Int -> Exp 'Local (a -> b) -> Exp 'Local a -> Exp 'Local b
 
 
 instance (Monad m) => Builder m Exp where
   makeRApply n f a = do
     return $ RApply n f a
-  makeRConst n a = do
-    return $ RConst n a
+  makeRConst n f a = do
+    return $ RConst n f a
   makeLConst n a = do
     return $ LConst n a
-  makeCollect n a = do
-    return $ Collect n a
+  makeCollect n f a = do
+    return $ Collect n f a
   makeLApply n f a = do
     return $ LApply n f a
   fuse refMap n e = return (e, refMap, n)
@@ -61,9 +61,9 @@ instance (Monad m) => Builder m Exp where
 
 instance Indexable Exp where
   getIndex (RApply n _ _) = n
-  getIndex (RConst n _) = n
+  getIndex (RConst n _ _ ) = n
   getIndex (LConst n _) = n
-  getIndex (Collect n _) = n
+  getIndex (Collect n _ _) = n
   getIndex (LApply n _ _) = n
 
 
@@ -102,15 +102,15 @@ runRemote (RApply _ cs e) = do
   e' <- runRemote e
   trace "RApply" $ f' e'
 
-runRemote (RConst _ e) =
-  return (chunk 1 e Vc.! 0)
+runRemote (RConst _ chunkFun e) =
+  return (chunkFun 1 e Vc.! 0)
   where
 
 
 runLocal ::  Exp 'Local a -> IO a
-runLocal (Collect _ e) = do
+runLocal (Collect _ unChunkFun e) = do
   b <- runRemote e
-  return $ unChunk [b]
+  return $ unChunkFun [b]
 runLocal (LConst _ a) = return a
 runLocal (LApply _ f e) = do
   f' <- runLocal f
