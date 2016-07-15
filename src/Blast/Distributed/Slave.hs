@@ -88,9 +88,11 @@ runCommand (LsReqCache i bs) ls =
         return (LsRespVoid, ls {vault = vault'})
 
       Just (GenericInfo _ (NtLExp (MkLExpInfo cacherFun _ ))) -> do
-        let vault' = cacherFun bs (vault ls)
-        return (LsRespVoid, ls {vault = vault'})
-
+        case bs of
+          Data bs' -> do
+            let vault' = cacherFun bs' (vault ls)
+            return (LsRespVoid, ls {vault = vault'})
+          NoData -> return (LsRespError ("NtLExp trying to cache no data: "++show i), ls)
       Just (GenericInfo _ (NtRMap _)) -> return (LsRespError ("NtRMap GenericInfo not found: "++show i), ls)
       Just (GenericInfo _ (NtLExpNoCache)) -> return (LsRespError ("NtLExpNoCache GenericInfo not found: "++show i), ls)
       _ -> return (LsRespError ("Nothing : GenericInfo not found: "++show i), ls)

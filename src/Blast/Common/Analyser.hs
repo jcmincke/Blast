@@ -9,6 +9,7 @@ module Blast.Common.Analyser
   CachedValType (..)
   , RemoteClosureResult (..)
   , RemoteClosureImpl
+  , Data (..)
   , referenceM
   , wasVisitedM
 )
@@ -49,7 +50,10 @@ instance Binary CachedValType
 type RemoteClosureImpl = V.Vault -> IO (RemoteClosureResult, V.Vault)
 
 
-
+data Data a =
+  Data a
+  |NoData
+  deriving (Show, Generic)
 
 referenceM :: forall i m. MonadLoggerIO m =>
                 Int -> Int -> StateT (GenericInfoMap i) m ()

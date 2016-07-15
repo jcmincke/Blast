@@ -40,8 +40,8 @@ import            Blast.Common.Analyser
 
 
 data SExp (k::Kind) a where
-  SRApply :: Int -> V.Key b -> ExpClosure SExp a b -> SExp 'Remote a -> SExp 'Remote b
-  SRConst ::  (Chunkable a b, S.Serialize b) => Int -> V.Key b -> a -> SExp 'Remote b
+  SRApply :: Int -> V.Key (Data b) -> ExpClosure SExp a b -> SExp 'Remote a -> SExp 'Remote b
+  SRConst ::  (Chunkable a b, S.Serialize b) => Int -> V.Key (Data b) -> a -> SExp 'Remote b
   SLConst :: Int -> V.Key a -> a -> SExp 'Local a
   SCollect :: (UnChunkable b a, S.Serialize b) => Int -> V.Key a -> SExp 'Remote b -> SExp 'Local a
   SLApply :: Int -> V.Key b -> SExp 'Local (a -> b) -> SExp 'Local a -> SExp 'Local b
@@ -75,8 +75,11 @@ instance Indexable SExp where
 
 
 
-type Cacher = BS.ByteString -> V.Vault -> V.Vault
-type CacherReader = V.Vault -> Maybe BS.ByteString
+type RemoteCacher = Data BS.ByteString -> V.Vault -> V.Vault
+type LocalCacher = BS.ByteString -> V.Vault -> V.Vault
+
+type RemoteCacheReader = V.Vault -> Maybe (Data BS.ByteString)
+
 type UnCacher = V.Vault -> V.Vault
 
 data NodeTypeInfo =
@@ -88,17 +91,17 @@ data NodeTypeInfo =
 data RMapInfo = MkRMapInfo {
   _rmRemoteClosure :: RemoteClosureImpl
   , _rmUnCacher :: UnCacher
-  , _rmCacheReader :: Maybe CacherReader
+  , _rmCacheReader :: Maybe RemoteCacheReader
   }
 
 data RConstInfo = MkRConstInfo {
-  _rcstCacher :: Cacher
+  _rcstCacher :: RemoteCacher
   , _rcstUnCacher :: UnCacher
-  , _rcstCacheReader :: Maybe CacherReader
+  , _rcstCacheReader :: Maybe RemoteCacheReader
   }
 
 data LExpInfo = MkLExpInfo {
-  _lexpCacher :: Cacher
+  _lexpCacher :: LocalCacher
   , _lexpUnCacher :: UnCacher
   }
 
@@ -122,7 +125,7 @@ makeUnCacher :: V.Key a -> V.Vault -> V.Vault
 makeUnCacher k vault = V.delete k vault
 
 mkRemoteClosure :: forall a b m . (MonadLoggerIO m) =>
-  V.Key a -> V.Key b -> ExpClosure SExp a b -> StateT InfoMap m RemoteClosureImpl
+  V.Key (Data a) -> V.Key (Data b) -> ExpClosure SExp a b -> StateT InfoMap m RemoteClosureImpl
 mkRemoteClosure keya keyb (ExpClosure e f) = do
   analyseLocal e
   addLocalExpCacheM e
@@ -131,7 +134,7 @@ mkRemoteClosure keya keyb (ExpClosure e f) = do
 
 
 wrapClosure :: forall a b c .
-            V.Key c -> V.Key a -> V.Key b -> (c -> a -> IO b) -> RemoteClosureImpl
+            V.Key c -> V.Key (Data a) -> V.Key (Data b) -> (c -> a -> IO b) -> RemoteClosureImpl
 wrapClosure keyc keya keyb f =
     proc
     where
@@ -142,10 +145,13 @@ wrapClosure keyc keya keyb f =
       r = do
         c <- getLocalVal CachedFreeVar vault keyc
         av <- getVal CachedArg vault keya
-        brdd <- liftIO $ (f c) av
+        brdd <- liftIO $ f' c av
         let vault' = V.insert keyb brdd vault
         return (RcRespOk, vault')
-
+      f' _ NoData = return NoData
+      f' c (Data a) = do
+        x <-  f c a
+        return $ Data x
 
 visitLocalExp :: Int -> InfoMap -> InfoMap
 visitLocalExp n m =
@@ -185,7 +191,7 @@ addLocalExpCacheM e = do
   m <- get
   put $ addLocalExpCache n key m
 
-addRemoteExpCacheReader :: (S.Serialize a) => Int -> V.Key a -> InfoMap -> InfoMap
+addRemoteExpCacheReader :: (S.Serialize a) => Int -> V.Key (Data a) -> InfoMap -> InfoMap
 addRemoteExpCacheReader n key m =
   case M.lookup n m of
   Just (GenericInfo _ (NtRMap (MkRMapInfo _ _ (Just _)))) -> m
@@ -196,11 +202,12 @@ addRemoteExpCacheReader n key m =
     M.insert n (GenericInfo c (NtRConst (MkRConstInfo cacher uncacher (Just cacheReader)))) m
   _ ->  error ("Node " ++ show n ++ " cannot add remote exp cache reader")
   where
-  cacheReader :: V.Vault -> Maybe BS.ByteString
+  cacheReader :: V.Vault -> Maybe (Data BS.ByteString)
   cacheReader vault =
     case V.lookup key vault of
       Nothing -> Nothing
-      Just b -> Just $ S.encode b
+      Just NoData -> Just NoData
+      Just (Data b) -> Just $ Data $ S.encode b
 
 
 addRemoteExpCacheReaderM ::
@@ -219,7 +226,7 @@ getRemoteIndex :: SExp 'Remote a -> Int
 getRemoteIndex (SRApply i _ _ _) = i
 getRemoteIndex (SRConst i _ _) = i
 
-getRemoteVaultKey :: SExp 'Remote a -> V.Key a
+getRemoteVaultKey :: SExp 'Remote a -> V.Key (Data a)
 getRemoteVaultKey (SRApply _ k _ _) = k
 getRemoteVaultKey (SRConst _ k _) = k
 
@@ -267,11 +274,12 @@ analyseRemote (SRConst n key _) = do
     Just (GenericInfo _ _) -> error ("RConst Node " ++ show n ++ " has already been visited")
     Nothing -> M.insert n (GenericInfo S.empty (NtRConst (MkRConstInfo (makeCacher key) (makeUnCacher key) Nothing))) m
     where
-    makeCacher :: (S.Serialize a) => V.Key a -> BS.ByteString -> V.Vault -> V.Vault
-    makeCacher k bs vault =
+    makeCacher :: (S.Serialize a) => V.Key (Data a) -> (Data BS.ByteString) -> V.Vault -> V.Vault
+    makeCacher k (NoData) vault = V.insert k NoData vault
+    makeCacher k (Data bs) vault =
       case S.decode bs of
       Left e -> error $ ("Cannot deserialize value: " ++ e)
-      Right a -> V.insert k a vault
+      Right a -> V.insert k (Data a) vault
 
 
 

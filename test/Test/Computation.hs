@@ -59,7 +59,8 @@ prop :: Int -> PropertyM IO Bool
 prop seed = do
   (a1, b1::Int) <- liftIO $ prop1 (jobDescFun ())
   (a2, b2::Int) <- liftIO $ prop2 (jobDescFun ())
-  return $ (a1, b1) == (a2, b2)
+  (a3, b3::Int) <- liftIO $ prop3 (jobDescFun ())
+  return $ (a1, b1) == (a2, b2) && (a1, b1) == (a3, b3)
   where
   depth = 10
   jobDescFun () =
@@ -86,6 +87,12 @@ prop1 jobDesc = do
 prop2 :: JobDesc Int Int -> IO (Int, Int)
 prop2 jobDesc = do
     let cf = defaultConfig { statefullSlaves = True, shouldOptimize = False }
+    (a2, b2::Int) <- runStdoutLoggingT $ Loc.runRec 1 cf jobDesc
+    return (a2, b2)
+
+prop3 :: JobDesc Int Int -> IO (Int, Int)
+prop3 jobDesc = do
+    let cf = defaultConfig { statefullSlaves = False, shouldOptimize = False }
     (a2, b2::Int) <- runStdoutLoggingT $ Loc.runRec 1 cf jobDesc
     return (a2, b2)
 

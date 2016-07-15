@@ -26,6 +26,7 @@ import            Control.Monad.Trans.State
 import qualified  Data.ByteString as BS
 import qualified  Data.List as L
 import qualified  Data.Map as M
+import            Data.Maybe (catMaybes)
 import qualified  Data.Serialize as S
 import qualified  Data.Set as S
 import qualified  Data.Vault.Strict as V
@@ -36,6 +37,9 @@ import Blast.Distributed.Types
 import Blast.Common.Analyser
 import Blast.Master.Analyser
 
+toData :: Maybe a -> Data a
+toData (Just a) = Data a
+toData Nothing = NoData
 
 getLocalVaultKey :: MExp 'Local a -> LocalKey a
 getLocalVaultKey (MLConst _ k _) = k
@@ -96,7 +100,7 @@ runRemoteOneSlaveStatefull slaveId oe@(MRApply n (ExpClosure ce _) e) = do
         Just (_, Nothing) -> error "local value not cached (BS) while executing remote on one slave"
         Just (_, Just p) -> do
           let ceId = getLocalIndex ce
-          let csBs = p Vc.! slaveId
+          let csBs = toData $ getPart slaveId p
           let req' = LsReqCache ceId csBs
           r' <- liftIO $ send s slaveId req'
           sr <- handleRpcErrorM r'
@@ -116,7 +120,7 @@ runRemoteOneSlaveStatefull slaveId (MRConst n key _) = do
   vault <- getVault
   case V.lookup key vault of
     Just partition -> do
-      let bs = partition Vc.! slaveId
+      let bs = toData $ getPart slaveId partition
       let req = LsReqCache n bs
       r <- liftIO $ send s slaveId req
       -- TODO :verify next line.
@@ -139,31 +143,32 @@ runRemoteOneSlaveStateless slaveId requests (MRApply n (ExpClosure ce _) e) = do
     Just (_, Nothing) -> error "local value not cached (BS) while executing remote on one slave"
     Just (_, Just p) -> do
       let ceId = getLocalIndex ce
-      let csBs = p Vc.! slaveId
+      let csBs = toData $ getPart slaveId p
       return (LsReqExecute n : LsReqCache ceId csBs : requests')
 
 runRemoteOneSlaveStateless slaveId requests (MRConst n key _) = do
   vault <- getVault
   case V.lookup key vault of
     Just partition -> do
-      let bs = partition Vc.! slaveId
+      let bs = toData $ getPart slaveId partition
       return (LsReqCache n bs : requests)
     Nothing ->  error "MRConst value not cached"
 
 
 fetchOneSlaveResults :: forall a s x m.
   (S.Serialize a, CommandClass s x, MonadIO m)
-  => Int -> MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m a
+  => Int -> MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m (Maybe a)
 fetchOneSlaveResults slaveId e = do
   s <- getRemote
   let n = getRemoteIndex e
   let req = LsReqFetch n
   rE <- liftIO $ send s slaveId req
   case handleRpcError rE of
-    LsRespFetch bs ->
+    LsRespFetch (Data bs) ->
       case S.decode bs of
-        Right v -> return v
+        Right v -> return $ Just v
         Left err -> error ("Cannot decode fetched value: " ++ err)
+    LsRespFetch NoData -> return Nothing
     LsRespError err -> error ("Cannot fetch results for node: "++ err)
     _ -> error ( "Should not reach here")
 
@@ -175,7 +180,7 @@ fetchResults e = do
   let slaveIds = [0 .. nbSlaves - 1]
   st <- get
   r <- liftIO $ mapConcurrently (\slaveId -> evalStateT (fetchOneSlaveResults slaveId e) st) slaveIds
-  return $ unChunk r
+  return $ unChunk $ catMaybes r
 
 
 unCacheRemoteOneSlave :: (CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
@@ -273,7 +278,7 @@ doRunRemoteStateless oe@(MRApply n _ _) = do
   let slaveIds = [0 .. nbSlaves - 1]
   st <- get
   rs <- liftIO $ mapConcurrently (\slaveId -> evalStateT (proc slaveId) st) slaveIds
-  return $ unChunk rs
+  return $ unChunk $ catMaybes rs
   where
   proc slaveId = do
     requests <- runRemoteOneSlaveStateless slaveId [] oe
@@ -283,10 +288,11 @@ doRunRemoteStateless oe@(MRApply n _ _) = do
     let req = LsReqBatch n requests'
     aE <- liftIO $ send s slaveId req
     case handleRpcError aE of
-      LsRespBatch bs ->
+      LsRespBatch (Data bs) ->
         case S.decode bs of
-          Right a -> return (a::b)
+          Right a -> return $ Just (a::b)
           Left err -> error ("Cannot decode value from a batch execution: "++err)
+      LsRespBatch NoData -> return Nothing
       LsRespError err -> error ("Batch error: "++err)
       _ -> error ( "Should not reach here")
 

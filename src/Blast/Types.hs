@@ -53,6 +53,8 @@ module Blast.Types
   , closureIO
   , foldFunIO
   , foldClosureIO
+  , partitionSize
+  , getPart
 
   , refs
 )
@@ -94,6 +96,13 @@ data Kind = Remote | Local
 
 -- | Represents the partitioning of a remote value.
 type Partition a = Vc.Vector a
+
+partitionSize :: Partition a -> Int
+partitionSize v = Vc.length v
+
+getPart :: Int -> Partition a -> Maybe a
+getPart i p | i <= partitionSize p - 1 = Just $ p Vc.! i
+getPart _ _ = Nothing
 
 -- | Values that can be partitionned.
 class Chunkable a b | a -> b, b -> a where

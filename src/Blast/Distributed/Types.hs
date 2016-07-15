@@ -51,7 +51,7 @@ class (S.Serialize x) => CommandClass s x where
 
 data SlaveRequest =
   LsReqExecute RemoteClosureIndex
-  |LsReqCache Int BS.ByteString
+  |LsReqCache Int (Data BS.ByteString)
   |LsReqUncache Int
   |LsReqFetch Int
   |LsReqReset BS.ByteString
@@ -69,9 +69,9 @@ instance Show SlaveRequest where
 
 data SlaveResponse =
   LsRespVoid
-  |LsRespFetch BS.ByteString
+  |LsRespFetch (Data BS.ByteString)
   |LsRespExecute RemoteClosureResult
-  |LsRespBatch BS.ByteString
+  |LsRespBatch (Data BS.ByteString)
   |LsRespError String
   deriving (Generic)
 
@@ -92,4 +92,8 @@ instance Binary SlaveResponse
 
 instance NFData SlaveResponse
 instance NFData SlaveRequest
+
+instance (Binary a) => Binary (Data a)
+instance (NFData a) => NFData (Data a)
+
 
