@@ -56,12 +56,19 @@ testComputation  =
 
 prop :: Int -> PropertyM IO Bool
 prop seed = do
-  (a1, b1::Int) <- liftIO $ prop1 (jobDescFun ())
-  (a2, b2::Int) <- liftIO $ prop2 (jobDescFun ())
-  (a3, b3::Int) <- liftIO $ prop3 (jobDescFun ())
-  return $ (a1, b1) == (a2, b2) && (a1, b1) == (a3, b3)
+  (a1, b1::Int) <- liftIO $ prop1 False (jobDescFun ())
+  (a2, b2::Int) <- liftIO $ prop1 True (jobDescFun ())
+  (a3, b3::Int) <- liftIO $ prop2 False (jobDescFun ())
+  (a4, b4::Int) <- liftIO $ prop2 True (jobDescFun ())
+  (a5, b5::Int) <- liftIO $ prop3 False (jobDescFun ())
+  (a6, b6::Int) <- liftIO $ prop3 True (jobDescFun ())
+  return $ (a1, b1) == (a2, b2)
+        && (a1, b1) == (a3, b3)
+        && (a1, b1) == (a4, b4)
+        && (a1, b1) == (a5, b5)
+        && (a1, b1) == (a6, b6)
   where
-  depth = 10
+  depth = 100
   jobDescFun () =
     let proc a = do
           let computation = generateOne seed (compGen depth)
@@ -77,22 +84,22 @@ prop seed = do
     in jobDesc
 
 
-prop1 :: JobDesc Int Int -> IO (Int, Int)
-prop1 jobDesc = do
-    (a1, b1::Int) <- runStdoutLoggingT $ S.runRec False jobDesc
+prop1 :: Bool -> JobDesc Int Int -> IO (Int, Int)
+prop1 optimize jobDesc = do
+    (a1, b1::Int) <- runStdoutLoggingT $ S.runRec optimize jobDesc
     return (a1, b1)
 
 
-prop2 :: JobDesc Int Int -> IO (Int, Int)
-prop2 jobDesc = do
-    let cf = defaultConfig { statefullSlaves = True, shouldOptimize = False }
-    (a2, b2::Int) <- runStdoutLoggingT $ Loc.runRec 1 cf jobDesc
+prop2 :: Bool -> JobDesc Int Int -> IO (Int, Int)
+prop2 optimize jobDesc = do
+    let cf = defaultConfig { statefullSlaves = True, shouldOptimize = optimize }
+    (a2, b2::Int) <- runStdoutLoggingT $ Loc.runRec 4 cf jobDesc
     return (a2, b2)
 
-prop3 :: JobDesc Int Int -> IO (Int, Int)
-prop3 jobDesc = do
-    let cf = defaultConfig { statefullSlaves = False, shouldOptimize = False }
-    (a2, b2::Int) <- runStdoutLoggingT $ Loc.runRec 1 cf jobDesc
+prop3 :: Bool -> JobDesc Int Int -> IO (Int, Int)
+prop3 optimize jobDesc = do
+    let cf = defaultConfig { statefullSlaves = False, shouldOptimize = optimize }
+    (a2, b2::Int) <- runStdoutLoggingT $ Loc.runRec 4 cf jobDesc
     return (a2, b2)
 
 
