@@ -10,7 +10,6 @@ module Test.Computation
 where
 
 import Debug.Trace
---import            Control.Applicative
 import            Control.Monad.Logger
 import            Control.Monad.IO.Class
 import qualified  Data.List as L

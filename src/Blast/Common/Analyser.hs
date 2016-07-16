@@ -18,7 +18,6 @@ where
 --import Debug.Trace
 
 import            Control.DeepSeq
-import            Control.Lens (set)
 import            Control.Monad.Logger
 import            Control.Monad.Trans.State
 import            Data.Binary (Binary)
@@ -67,7 +66,7 @@ referenceM parent child = do
   where
   doReference m =
     case M.lookup child m of
-    Just inf@(GenericInfo old _) -> M.insert child (set refs (S.insert parent old) inf) m
+    Just inf@(GenericInfo old _) -> M.insert child (inf {giRefs = S.insert parent old}) m
     Nothing -> error $  ("Node " ++ show child ++ " is referenced before being visited")
 
 

@@ -60,12 +60,11 @@ module Blast.Types
   , partitionSize
   , getPart
 
-  , refs
 )
 where
 
 --import Debug.Trace
-import qualified  Control.Lens as Lens (set, view, makeLenses)
+import qualified  Control.Lens as Lens ()
 import            Control.Monad.Operational
 import qualified  Data.List as L
 import qualified  Data.Map as M
@@ -75,12 +74,12 @@ import qualified  Data.Vector as Vc
 
 
 data GenericInfo i = GenericInfo {
-  _refs :: S.Set Int -- set of parents, that is, nodes that reference this node
-  , _info :: i
+  giRefs :: S.Set Int -- set of parents, that is, nodes that reference this node
+  , giInfo :: i
   }
     deriving Show
 
-$(Lens.makeLenses ''GenericInfo)
+-- $(Lens.makeLenses ''GenericInfo)
 
 type GenericInfoMap i = M.Map Int (GenericInfo i)
 
@@ -212,7 +211,7 @@ rapply fm e  = do
 refCount :: Int -> GenericInfoMap i -> Int
 refCount n m =
   case M.lookup n m of
-    Just inf -> S.size $ Lens.view refs inf
+    Just (GenericInfo refs _) -> S.size refs
     Nothing -> error ("Ref count not found for node: " ++ show n)
 
 addUnitInfo :: Int -> GenericInfoMap () -> GenericInfoMap ()
@@ -225,7 +224,7 @@ addUnitInfo n refMap =
 reference :: Int -> Int -> GenericInfoMap i -> GenericInfoMap i
 reference parent child refMap = do
   case M.lookup child refMap of
-    Just inf@(GenericInfo old _) -> M.insert child (Lens.set refs (S.insert parent old) inf) refMap
+    Just inf@(GenericInfo old _) -> M.insert child (inf {giRefs = S.insert parent old}) refMap
     Nothing -> error $  ("Node " ++ show child ++ " is referenced before being visited")
 
 generateReferenceMap ::forall a m e. (Builder m e, Monad m) =>  Int -> GenericInfoMap () -> ProgramT (Syntax m) m (e 'Local a) -> m (GenericInfoMap (), Int)
