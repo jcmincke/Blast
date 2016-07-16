@@ -148,7 +148,7 @@ addLocal ::forall m e. (Monad m, Builder m e)
   -> [Computation m e 'Local Int]
   -> Gen [Computation m e 'Local Int]
 addLocal remotes locals = do
-  frequency [(1, gen1), (1, gen2), (1, gen3)]
+  frequency [(1, gen1), (1, gen2), (1, gen3), (1, gen4)]
   gen3
   where
   gen1 = do
@@ -157,7 +157,7 @@ addLocal remotes locals = do
               r <- remote
               a <- S.collect r
               zero <- lconst (0::Int)
-              (L.foldl' (+)) <$$> zero <**> a
+              lfold' (+) zero a
     return (c:locals)
   gen2 = do
     v <- choose (-1, 1)
@@ -171,5 +171,13 @@ addLocal remotes locals = do
           a2 <- l2
           (+) <$$> a1 <**> a2
     return (c:locals)
-
-
+  gen4 = do
+    remote <- elements remotes
+    zero <- elements locals
+    offset <- elements locals
+    let c = do
+              r <- remote
+              z <- zero
+              o <- offset
+              rfold' (foldClosure o (\a b c -> a+b+c)) (L.foldl' (+) 0) z r
+    return (c:locals)
