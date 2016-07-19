@@ -319,7 +319,12 @@ defaultConfig = MkConfig False 1.0 True
 -- instances
 
 instance {-# OVERLAPPABLE #-} ChunkableFreeVar a
-
+instance {-# OVERLAPPABLE #-} (ChunkableFreeVar a , ChunkableFreeVar b) => ChunkableFreeVar (a,b) where
+  chunk' n (a, c) =
+    Vc.zip pb pd
+    where
+    pb = chunk' n a
+    pd = chunk' n c
 
 instance ChunkableFreeVar ()
 

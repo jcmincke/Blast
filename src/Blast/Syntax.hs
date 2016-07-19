@@ -159,7 +159,7 @@ count e = do
   lfold f zero e
 
 -- | Remote fold. Returns a value of type '[r]' which is guaranteed to be "Unchunkable".
-rfold ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, Monad m)
+rfold ::  (Builder m e, Traversable t, Applicative t, S.Serialize r, Monad m, ChunkableFreeVar r)
           => FoldFun e a r -> e 'Local r -> e 'Remote (t a) -> Computation m e 'Remote [r]
 rfold fp zero e = do
   cs <- mkRemoteClosure fp
@@ -179,7 +179,7 @@ rfold fp zero e = do
 
 -- | Remote fold followed by a local aggregation.
 -- Correct if and only if the folding function is both associative and commutative.
-rfold' :: (Monad m, Applicative t, Traversable t, S.Serialize r, Builder m e) =>
+rfold' :: (Monad m, Applicative t, Traversable t, S.Serialize r, Builder m e, ChunkableFreeVar r) =>
   FoldFun e a r
   -> ([r] -> b)
   -> e 'Local r
