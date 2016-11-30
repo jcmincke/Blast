@@ -1,3 +1,9 @@
+{-
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-}
+
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -291,8 +297,8 @@ build doOptimize refMap counter fuseCounter p = do
 
 -- | Definition of a recursive job.
 data JobDesc a b = MkJobDesc {
-  -- | The initial value passed to the computation generator.
-  seed :: a
+    -- | The initial value passed to the computation generator.
+    seed :: a
   -- | The computation generator.
   , computationGen :: a -> (forall e m. (Monad m, Builder m e) => Computation m e 'Local (a, b))
   -- | An action that is executed after each iteration.

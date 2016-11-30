@@ -139,6 +139,16 @@ ch = do
 
 main = ch
 
+
+computation = let
+  a = [1..100]
+  b = L.map (\x -> x * 2) a
+  s = sum b
+  c = L.map (\x -> x+s) b
+  r = sum c
+  in r
+
+
 {-}
 readTxtFile :: String -> Int -> IO [String]
 readTxtFile rootDir n = do

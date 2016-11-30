@@ -2,7 +2,7 @@
 Module      : Blast
 Description : A distributed computing library
 Copyright   : (c) Jean-Christophe Mincke, 2016
-License     : BSD3
+License     : Mozilla Public License, v. 2.0
 Maintainer  : jeanchristophe.mincke@gmail.com
 Stability   : experimental
 Portability : POSIX

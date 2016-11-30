@@ -1,12 +1,9 @@
-{-|
-Module      : Blast.Syntax
-Copyright   : (c) Jean-Christophe Mincke, 2016
-License     : BSD3
-Maintainer  : jeanchristophe.mincke@gmail.com
-Stability   : experimental
-Portability : POSIX
-
+{-
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at http://mozilla.org/MPL/2.0/.
 -}
+
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
@@ -245,7 +242,7 @@ instance (Applicative t, Foldable t, Monoid (t (KeyedVal k v))
 
 
 -- | Optimized remote join operation between 2 collections of (key, value) pairs.
-
+-- Only works if the remote value "e 'Remote (t2 (KeyedVal k b))" is chunked according to "Chunkable (t (KeyedVal k v)) (t (KeyedVal k v))"
 rKeyedJoin
   :: (Eq k, Monad m, Applicative t, Applicative t1,
       Foldable t, Foldable t1, Foldable t2,

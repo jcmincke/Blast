@@ -73,6 +73,20 @@ expg c1 () = do
   (\v -> ((),v)) <$$> r
 
 
+demo :: LocalComputation Int
+demo = do
+  a <- rconst [1..100]
+  b <- rmap (fun (\x -> x * 2)) a
+  lb <- collect b
+  s <- sum <$$> lb
+  c <- rmap (closure s (\s x -> x + s)) b
+  lc <- collect c
+  r <- sum <$$> lc
+  return r
+
+
+
+
 --  computation = c1
 {-
 
