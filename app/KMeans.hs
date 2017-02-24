@@ -7,22 +7,15 @@
 
 module Main where
 
-import Debug.Trace
-import            Control.Concurrent
+
+--import Debug.Trace
 import            Control.DeepSeq
 import qualified  Data.List as L
 
 import qualified  Data.Map.Strict as M
-import            Data.Proxy
-import            Control.Monad.IO.Class
-import            Control.Monad.Operational
 import            Control.Monad.Logger
-import            Control.Monad.Trans.State
-import            Data.Traversable
 
-import qualified  Data.Vector as V
-
-import            Control.Distributed.Process (RemoteTable)
+import            Control.Distributed.Process (RemoteTable, Process)
 import            Control.Distributed.Process.Node (initRemoteTable)
 import            Control.Distributed.Process.Closure (mkClosure, remotable)
 
@@ -38,6 +31,7 @@ import            Blast.Runner.CloudHaskell as CH
 
 type Point = (Double, Double)
 
+dist :: forall a. Num a => (a, a) -> (a, a) -> a
 dist (x1, y1) (x2, y2) = let
   dx = x2-x1
   dy = y2 -y1
@@ -55,12 +49,12 @@ chooseCenter centerAndSums p =
   bestCenter = findCenter c d t
   (c:t) = M.keys centerAndSums
   d = dist c p
-  findCenter currentCenter currentDist [] = currentCenter
-  findCenter currentCenter currentDist (center:t) = let
-    d = dist center p
-    in  if d < currentDist
-        then findCenter center d t
-        else findCenter currentCenter currentDist t
+  findCenter currentCenter _ [] = currentCenter
+  findCenter currentCenter currentDist (center:rest) = let
+    d' = dist center p
+    in  if d' < currentDist
+        then findCenter center d' rest
+        else findCenter currentCenter currentDist rest
 
 assignPoints :: Int -> [Point] -> Range -> [(Point, (Point, Int))]
 assignPoints nbPoints centers range =
@@ -80,13 +74,13 @@ computeNewCenters l =
   x::M.Map Point [(Point, Int)]
   x = L.foldl' (\m (c, (p,n)) -> M.insertWith (++) c [(p, n)] m) M.empty  l
   y::M.Map Point Point
-  y = M.map (\l -> let (ps, ns) = L.unzip l
-                       (xs, ys) = L.unzip ps
-                       sumX = sum xs
-                       sumY = sum ys
-                       n = sum ns
-                       r = (sumX / (fromIntegral n), sumY / (fromIntegral n))
-                       in r)
+  y = M.map (\l' -> let (ps, ns) = L.unzip l'
+                        (xs, ys) = L.unzip ps
+                        sumX = sum xs
+                        sumY = sum ys
+                        n = sum ns
+                        r = (sumX / (fromIntegral n), sumY / (fromIntegral n))
+                        in r)
             x
 
 deltaCenter :: M.Map Point Point -> Double
@@ -97,8 +91,7 @@ deltaCenter centers =
   l = L.map (\(p1, p2) -> sqrt $  dist p1 p2) $ M.toList centers
 
 expGenerator :: Int -> ([Point], Double) -> LocalComputation (([Point], Double), [Point])
-expGenerator nbPoints (centers, var) = do
---      let nbPoints = V.length points
+expGenerator nbPoints (centers, _) = do
       range <- rconst $ Range 0 nbPoints
       ricenters <- rapply (funIO (proc nbPoints centers)) range
       icenters <- collect ricenters
@@ -108,18 +101,21 @@ expGenerator nbPoints (centers, var) = do
       r <- (,) <$$>  centers' <**> var'
       (,) <$$> r <**> centers'
       where
-      proc nbPoints centers range = do
+      proc nbPoints' centers' range = do
         putStrLn "start"
-        let !r = (assignPoints nbPoints centers range)
+        let !r = (assignPoints nbPoints' centers' range)
         putStrLn "end"
         return r
 
-
+criterion :: forall t t1 t2 a.
+                   (Num a, Ord a) =>
+                   a -> (t1, a) -> (t2, a) -> t -> Bool
 criterion tol (_, x) (_, y) _ = abs (x - y) < tol
 
+jobDesc :: JobDesc ([(Double, Double)], Double) [Point]
 jobDesc = MkJobDesc ([(0, 0), (1, 1)], 1000.0) (expGenerator 1000) reporting (criterion 0.1)
 
-
+rloc :: Bool -> IO ()
 rloc statefull = do
   let cf = defaultConfig { statefullSlaves = statefull }
   (a,b) <- logger $ Loc.runRec 4 cf jobDesc
@@ -129,22 +125,20 @@ rloc statefull = do
   logger a = runLoggingT a (\_ _ _ _ -> return ())
 
 
-
-reporting a b = do
+reporting :: forall t b. b -> t -> IO b
+reporting a _ = do
   putStrLn "Reporting"
-  --print a
-  --print b
   putStrLn "End Reporting"
   return a
 
-
+rpcConfigAction :: IO RpcConfig
 rpcConfigAction = return $
   MkRpcConfig
     (defaultConfig { shouldOptimize = False })
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 
-
+slaveClosure :: Int -> Process ()
 slaveClosure = CH.slaveProcess rpcConfigAction jobDesc
 
 remotable ['slaveClosure]
@@ -152,7 +146,7 @@ remotable ['slaveClosure]
 rtable :: RemoteTable
 rtable = __remoteTable initRemoteTable
 
-
+ch :: IO ()
 ch = do
   args <- getArgs
   rpcConfig <- rpcConfigAction
@@ -163,8 +157,10 @@ ch = do
     print b
     print "=========="
 
-
+main :: IO ()
 main = ch
+
+simple :: IO ()
 simple = do
   (a,b) <- logger $ S.runRec False jobDesc
   print a
