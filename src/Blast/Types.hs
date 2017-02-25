@@ -158,7 +158,6 @@ class (Indexable e) => Builder m e where
   makeLConst :: Int -> a -> m (e 'Local a)
   makeCollect :: (S.Serialize b) => Int -> UnChunkFun b a -> e 'Remote b -> m (e 'Local a)
   makeLApply :: Int -> e 'Local (a -> b) -> e 'Local a -> m (e 'Local b)
-  fuse :: GenericInfoMap () -> Int -> e 'Remote a -> m (e 'Remote a, GenericInfoMap (), Int)
 
 data Syntax m e where
   StxRApply :: (Builder m e) => ExpClosure e a b -> e 'Remote a -> Syntax m (e 'Remote b)
@@ -270,30 +269,27 @@ generateReferenceMap counter refMap p = do
 
 
 
-build ::forall a m e. (Builder m e, Monad m) => Bool -> GenericInfoMap () -> Int -> Int -> ProgramT (Syntax m) m (e 'Local a)  -> m (e 'Local a)
-build doOptimize refMap counter fuseCounter p = do
+build ::forall a m e. (Builder m e, Monad m) => GenericInfoMap () -> Int -> ProgramT (Syntax m) m (e 'Local a)  -> m (e 'Local a)
+build refMap counter p = do
     pv <- viewT p
     eval pv
     where
     eval :: (Builder m e, Monad m) => ProgramViewT (Syntax m) m (e 'Local a) -> m (e 'Local a)
     eval (StxRApply cs@(ExpClosure _ _) a :>>=  is) = do
       e <- makeRApply counter cs a
-      (e', refMap', fuseCounter') <- if doOptimize
-                                      then fuse refMap fuseCounter e
-                                      else return (e, refMap, fuseCounter)
-      build doOptimize refMap' (counter+1) fuseCounter' (is e')
+      build refMap (counter+1) (is e)
     eval (StxRConst chunkFun a :>>=  is) = do
       e <- makeRConst counter chunkFun a
-      build doOptimize refMap (counter+1) fuseCounter (is e)
+      build refMap (counter+1) (is e)
     eval (StxLConst a :>>=  is) = do
       e <- makeLConst counter a
-      build doOptimize refMap (counter+1) fuseCounter (is e)
+      build refMap (counter+1) (is e)
     eval (StxCollect f a :>>=  is) = do
       e <- makeCollect counter f a
-      build doOptimize refMap (counter+1) fuseCounter (is e)
+      build refMap (counter+1) (is e)
     eval (StxLApply f a :>>=  is) = do
       e <- makeLApply counter f a
-      build doOptimize refMap (counter+1) fuseCounter (is e)
+      build refMap (counter+1) (is e)
     eval (Return a) = return a
 
 
@@ -312,8 +308,7 @@ data JobDesc a b = MkJobDesc {
 
 data Config = MkConfig
   {
-    shouldOptimize :: Bool          -- ^ True to optimize the computation.
-    , slaveAvailability :: Float    -- ^ Probability of slave failure. Used in testing.
+    slaveAvailability :: Float    -- ^ Probability of slave failure. Used in testing.
     , statefullSlaves :: Bool       -- ^ True turns on the statefull slave mode. Slaves are stateless if False.
   }
 
@@ -322,7 +317,7 @@ data Config = MkConfig
 -- defaultConfig = MkConfig False 1.0 True
 -- @
 defaultConfig :: Config
-defaultConfig = MkConfig False 1.0 True
+defaultConfig = MkConfig 1.0 True
 
 -- instances
 

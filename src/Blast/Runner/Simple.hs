@@ -54,7 +54,6 @@ instance (Monad m) => Builder m Exp where
     return $ Collect n f a
   makeLApply n f a = do
     return $ LApply n f a
-  fuse refMap n e = return (e, refMap, n)
 
 
 
@@ -71,20 +70,19 @@ instance Indexable Exp where
 
 -- | Runs a computation using a simple interpreter. Execute all computations on just one thread.
 runRec :: forall a b m. (MonadLoggerIO m) =>
-  Bool
-  -> JobDesc a b
+  JobDesc a b
   -> m (a, b)
-runRec shouldOptimize (jobDesc@MkJobDesc {..}) = do
+runRec (jobDesc@MkJobDesc {..}) = do
   let program = computationGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
-  !(e::Exp 'Local (a,b)) <- build shouldOptimize refMap (0::Int) count program
+  !(e::Exp 'Local (a,b)) <- build refMap count program
   (a,b) <- liftIO $ runLocal e
   a' <- liftIO $ reportingAction a b
   case recPredicate a a' b of
     True -> do
       return (a', b)
     False -> do
-      runRec shouldOptimize (jobDesc {seed = a'})
+      runRec (jobDesc {seed = a'})
 
 
 

@@ -77,10 +77,9 @@ jobDesc :: JobDesc () (M.Map Word8 Int)
 jobDesc = MkJobDesc () (expGenerator 8) reporting (\_ _ _ -> True)
 
 
-rloc:: Bool -> IO ()
-rloc optimize = do
-  let cf = defaultConfig { shouldOptimize = optimize }
-  (a,b) <- logger $ Loc.runRec 4 cf jobDesc
+rloc :: IO ()
+rloc = do
+  (a,b) <- logger $ Loc.runRec 4 defaultConfig jobDesc
   print a
   print b
   return ()
@@ -99,7 +98,7 @@ reporting a _ = do
 rpcConfigAction :: IO RpcConfig
 rpcConfigAction = return $
   MkRpcConfig
-    (defaultConfig { shouldOptimize = False })
+    defaultConfig
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 

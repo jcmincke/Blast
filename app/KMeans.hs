@@ -134,7 +134,7 @@ reporting a _ = do
 rpcConfigAction :: IO RpcConfig
 rpcConfigAction = return $
   MkRpcConfig
-    (defaultConfig { shouldOptimize = False })
+    defaultConfig
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 
@@ -162,7 +162,7 @@ main = ch
 
 simple :: IO ()
 simple = do
-  (a,b) <- logger $ S.runRec False jobDesc
+  (a,b) <- logger $ S.runRec jobDesc
   print a
   print b
   where

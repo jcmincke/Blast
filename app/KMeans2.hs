@@ -24,7 +24,6 @@ import            System.Environment (getArgs)
 import            Blast
 import            Blast.Syntax
 import qualified  Blast.Runner.Simple as S
-import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH
 
 
@@ -102,15 +101,15 @@ jobDesc :: JobDesc ([(Double, Double)], Double) [Point]
 jobDesc = MkJobDesc ([(0.0, 0.0), (1.0, 1.0)], 1000.0) (expGenerator 100) reporting (criterion 0.1)
 
 
-rloc :: Bool -> IO ()
-rloc statefull = do
-  let cf = defaultConfig { statefullSlaves = statefull }
-  (a,b) <- logger $ Loc.runRec 1 cf jobDesc
-  print a
-  print b
-  return ()
-  where
-  logger a = runLoggingT a (\_ _ _ _ -> return ())
+--rloc :: Bool -> IO ()
+--rloc statefull = do
+--  let cf = defaultConfig { statefullSlaves = statefull }
+--  (a,b) <- logger $ Loc.runRec 1 cf jobDesc
+--  print a
+--  print b
+--  return ()
+--  where
+--  logger a = runLoggingT a (\_ _ _ _ -> return ())
 
 
 reporting :: forall t b. b -> t -> IO b
@@ -125,7 +124,7 @@ reporting a _ = do
 rpcConfigAction :: IO RpcConfig
 rpcConfigAction = return $
   MkRpcConfig
-    (defaultConfig { shouldOptimize = False })
+    defaultConfig
     (MkMasterConfig runStdoutLoggingT)
     (MkSlaveConfig runStdoutLoggingT)
 
@@ -151,7 +150,7 @@ main = ch
 
 simple :: IO ()
 simple = do
-  (a,b) <- logger $ S.runRec False jobDesc
+  (a,b) <- logger $ S.runRec jobDesc
   print a
   print b
   return ()

@@ -60,7 +60,7 @@ runComputation (MkConfig {..}) s (MkJobDesc {..}) = do
     let program = computationGen seed
 
     (refMap, count) <- generateReferenceMap 0 M.empty program
-    e <- build shouldOptimize refMap (0::Int) count program
+    e <- build refMap count program
 
     infos <- execStateT (analyseLocal e) M.empty
     s' <- liftIO $ setSeed s seed
