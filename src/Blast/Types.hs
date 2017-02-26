@@ -301,8 +301,8 @@ data JobDesc a b = MkJobDesc {
   , computationGen :: a -> (forall e m. (Monad m, Builder m e) => Computation m e 'Local (a, b))
   -- | An action that is executed after each iteration.
   , reportingAction :: a -> b -> IO a
-  -- | Predicate that determines whether or not to continue the computation.
-  , recPredicate  :: a -> a -> b -> Bool
+  -- | Predicate that determines whether or not to continue the computation (False to continue, True to exit)
+  , shouldStop  :: a -> a -> b -> Bool
   }
 
 

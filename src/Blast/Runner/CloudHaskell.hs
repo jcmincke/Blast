@@ -214,7 +214,7 @@ startClientRpc (MkRpcConfig config (MkMasterConfig logger) _) theJobDesc slaveCl
         (a, b) <- liftIO $ do logger $ runComputation config rpcState jobDesc
         liftIO $ stop rpcState
         a' <- liftIO $ reportingAction a b
-        case recPredicate seed a' b of
+        case shouldStop seed a' b of
           True -> liftIO $ k a b
           False -> do let jobDesc' = jobDesc {seed = a'}
                       liftIO $ putStrLn "iteration finished"

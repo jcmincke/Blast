@@ -64,7 +64,7 @@ doRunRec :: forall a b m.
 doRunRec config@(MkConfig {..}) s (jobDesc@MkJobDesc {..}) = do
   (a, b) <- runComputation config s jobDesc
   a' <- liftIO $ reportingAction a b
-  case recPredicate seed a' b of
+  case shouldStop seed a' b of
     True -> return (a', b)
     False -> doRunRec config s (jobDesc {seed = a'})
 

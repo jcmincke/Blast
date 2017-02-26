@@ -59,18 +59,27 @@ library
   default-language:    Haskell2010
   ghc-options:         -Wall
 
---executable blast-exe
---  hs-source-dirs:      app
---  main-is:             Main.hs
---  ghc-options:         -threaded -rtsopts -with-rtsopts=-N  -Wall
---  build-depends:       base
---    , containers
---    , monad-logger
---    , operational
---    , transformers
---    , vault
---    , blast
---  default-language:    Haskell2010
+
+
+executable simple
+  hs-source-dirs:      examples
+  main-is:             Simple/Main.hs
+  ghc-options:         -threaded -rtsopts -with-rtsopts=-N  -Wall
+  build-depends:       base
+    , cereal
+    , containers
+    , deepseq
+    , distributed-process
+    , distributed-process-client-server
+    , distributed-process-extras
+    , distributed-process-simplelocalnet
+    , distributed-static
+    , monad-logger
+    , operational
+    , transformers
+    , vault
+    , blast
+  default-language:    Haskell2010
 
 
 

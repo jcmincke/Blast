@@ -78,7 +78,7 @@ runRec (jobDesc@MkJobDesc {..}) = do
   !(e::Exp 'Local (a,b)) <- build refMap count program
   (a,b) <- liftIO $ runLocal e
   a' <- liftIO $ reportingAction a b
-  case recPredicate a a' b of
+  case shouldStop a a' b of
     True -> do
       return (a', b)
     False -> do
