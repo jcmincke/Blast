@@ -63,7 +63,7 @@ $ stack exec -- kmeans
 
 ### WordCount
 
-Counts the occurence of each character in multiple files.
+Counts the number of occurrences of each character in multiple files.
 
 ```
 $ cd examples/WordCount
@@ -77,5 +77,5 @@ Copyright (c) 2016-2017 Jean-Christophe Mincke.
 
 All rights reserved.
 
-Blast is free software, and may be redistributed under the terms
+**Blast** is free software, and may be redistributed under the terms
 specified in the [LICENSE](LICENSE) file.
