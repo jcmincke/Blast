@@ -120,5 +120,5 @@ mainLocal = do
 -}
 
 main :: IO ()
-main = mainCH
+main = mainLocal
 

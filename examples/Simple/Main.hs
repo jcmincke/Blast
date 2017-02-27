@@ -272,6 +272,6 @@ mainLocal5 = do
 
 -- main and rtable
 main :: IO ()
-main = mainLocal5
+main = mainLocal1
 
 
