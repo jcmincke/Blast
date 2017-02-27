@@ -267,7 +267,8 @@ doRunRemoteStatefull oe@(MRApply n (ExpClosure ce _) e) = do
   return ()
 
 
-doRunRemoteStatefull e@(MRConst _ key chunkFun a) = do
+doRunRemoteStatefull e@(MRConst _ key chunkFun aio) = do
+  a <- liftIO aio
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
@@ -306,7 +307,8 @@ doRunRemoteStateless unChunkFun oe@(MRApply n _ _) = do
       _ -> error ( "Should not reach here")
 
 -- TODO uncomment
-doRunRemoteStateless unChunkFun (MRConst _ _ chunkFun a) = do
+doRunRemoteStateless unChunkFun (MRConst _ _ chunkFun aio) = do
+  a <- liftIO aio
   return $ unChunkFun [(chunkFun 1 a Vc.! 0)]
 
 
@@ -329,7 +331,8 @@ prepareRunRemote (MRApply _ (ExpClosure ce _) e) = do
   return ()
 
 
-prepareRunRemote (MRConst _ key chunkFun a) = do
+prepareRunRemote (MRConst _ key chunkFun aio) = do
+  a <- liftIO aio
   s <- getRemote
   vault <- getVault
   let nbSlaves = getNbSlaves s
@@ -339,12 +342,13 @@ prepareRunRemote (MRConst _ key chunkFun a) = do
   return ()
 
 runLocal ::(CommandClass s x, MonadLoggerIO m) => MExp 'Local a -> StateT (s x, V.Vault, InfoMap) m (a, Maybe (Partition BS.ByteString))
-runLocal (MLConst _ key a) = do
+runLocal (MLConst _ key aio) = do
   vault <- getVault
   let cvm = V.lookup key vault
   case cvm of
     Just cv -> return cv
     Nothing -> do
+      a <- liftIO aio
       setVault (V.insert key (a, Nothing) vault)
       return (a, Nothing)
 

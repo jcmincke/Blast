@@ -37,8 +37,8 @@ import            Blast.Types
 
 data Exp (k::Kind) a where
   RApply :: Int -> ExpClosure Exp a b -> Exp 'Remote a -> Exp 'Remote b
-  RConst :: Int -> ChunkFun a b ->  a -> Exp 'Remote b
-  LConst :: Int -> a -> Exp 'Local a
+  RConst :: Int -> ChunkFun a b ->  IO a -> Exp 'Remote b
+  LConst :: Int -> IO a -> Exp 'Local a
   Collect :: Int -> UnChunkFun b a -> Exp 'Remote b -> Exp 'Local a
   LApply :: Int -> Exp 'Local (a -> b) -> Exp 'Local a -> Exp 'Local b
 
@@ -76,7 +76,7 @@ runRec (jobDesc@MkJobDesc {..}) = do
   let program = computationGen seed
   (refMap, count) <- generateReferenceMap 0 M.empty program
   !(e::Exp 'Local (a,b)) <- build refMap count program
-  (a,b) <- liftIO $ runLocal e
+  (a, b) <- liftIO $ runLocal e
   a' <- liftIO $ reportingAction a b
   case shouldStop a a' b of
     True -> do
@@ -99,7 +99,8 @@ runRemote (RApply _ cs e) = do
   e' <- runRemote e
   trace "RApply" $ f' e'
 
-runRemote (RConst _ chunkFun e) =
+runRemote (RConst _ chunkFun eio) = do
+  e <- eio
   return (chunkFun 1 e Vc.! 0)
   where
 
@@ -108,7 +109,7 @@ runLocal ::  Exp 'Local a -> IO a
 runLocal (Collect _ unChunkFun e) = do
   b <- runRemote e
   return $ unChunkFun [b]
-runLocal (LConst _ a) = return a
+runLocal (LConst _ a) = a
 runLocal (LApply _ f e) = do
   f' <- runLocal f
   e' <- runLocal e

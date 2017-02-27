@@ -50,6 +50,7 @@ where
 
 --import Debug.Trace
 import            Control.Monad hiding (join)
+import            Control.Monad.IO.Class
 import            Data.Foldable
 import            Data.Hashable
 import qualified  Data.HashMap.Lazy as M
@@ -127,6 +128,7 @@ f <**> a = do
 (<$$>) :: (Monad m, Builder m e)
           => (a -> b) -> e 'Local a -> Computation m e 'Local b
 f <$$> e = lconst f <**> e
+
 
 -- | Local fold.
 lfold ::  (Monad m, Foldable t, Builder m e)

@@ -154,15 +154,15 @@ type UnChunkFun b a = [b] -> a
 
 class (Indexable e) => Builder m e where
   makeRApply :: Int -> ExpClosure e a b -> e 'Remote a -> m (e 'Remote b)
-  makeRConst :: (S.Serialize b) => Int -> ChunkFun a b -> a -> m (e 'Remote b)
-  makeLConst :: Int -> a -> m (e 'Local a)
+  makeRConst :: (S.Serialize b) => Int -> ChunkFun a b -> IO a -> m (e 'Remote b)
+  makeLConst :: Int -> IO a -> m (e 'Local a)
   makeCollect :: (S.Serialize b) => Int -> UnChunkFun b a -> e 'Remote b -> m (e 'Local a)
   makeLApply :: Int -> e 'Local (a -> b) -> e 'Local a -> m (e 'Local b)
 
 data Syntax m e where
   StxRApply :: (Builder m e) => ExpClosure e a b -> e 'Remote a -> Syntax m (e 'Remote b)
-  StxRConst :: (Builder m e, S.Serialize b) => ChunkFun a b -> a -> Syntax m (e 'Remote b)
-  StxLConst :: (Builder m e) => a -> Syntax m (e 'Local a)
+  StxRConst :: (Builder m e, S.Serialize b) => ChunkFun a b -> IO a -> Syntax m (e 'Remote b)
+  StxLConst :: (Builder m e) => IO a -> Syntax m (e 'Local a)
   StxCollect :: (Builder m e, S.Serialize b) => UnChunkFun b a -> e 'Remote b -> Syntax m (e 'Local a)
   StxLApply :: (Builder m e) => e 'Local (a -> b) -> e 'Local a -> Syntax m (e 'Local b)
 
@@ -175,16 +175,24 @@ rapply' f a = singleton (StxRApply f a)
 
 -- | Creates a remote value, passing a specific chunk function.
 rconst' :: (S.Serialize b) =>
-  ChunkFun a b -> a -> RemoteComputation b
+  ChunkFun a b -> IO a -> RemoteComputation b
 rconst' f a = singleton (StxRConst f a)
 
 -- | Creates a remote value.
 rconst :: (S.Serialize b, Chunkable a b) => a -> RemoteComputation b
-rconst a = rconst' chunk a
+rconst a = rconst' chunk (return a)
+
+-- | Creates a remote value.
+rconstIO :: (S.Serialize b, Chunkable a b) => IO a -> RemoteComputation b
+rconstIO a = rconst' chunk a
 
 -- | Creates a local value.
 lconst :: a -> LocalComputation a
-lconst a = singleton (StxLConst a)
+lconst a = singleton (StxLConst (return a))
+
+-- | Creates a local value.
+lconstIO :: IO a -> LocalComputation a
+lconstIO a = singleton (StxLConst a)
 
 -- | Creates a local value from a remote value, passing a specific chunk function.
 collect' :: (S.Serialize b, Builder m e) =>
@@ -196,10 +204,11 @@ collect :: (S.Serialize b, Builder m e, UnChunkable b a) =>
   e 'Remote b -> Computation m e 'Local a
 collect a = collect' unChunk a
 
--- | Applies a closure to a local value.
+-- | Applies a function to a local value.
 lapply :: (Builder m e) =>
   e 'Local (a -> b) -> e 'Local a -> Computation m e 'Local b
 lapply f a = singleton (StxLApply f a)
+
 
 -- | Applies a closure to remote value.
 rapply :: (Monad m, Builder m e) =>

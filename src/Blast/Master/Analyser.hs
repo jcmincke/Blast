@@ -50,8 +50,8 @@ type LocalKey a = V.Key (a, Maybe (Partition BS.ByteString))
 
 data MExp (k::Kind) a where
   MRApply :: Int -> ExpClosure MExp a b -> MExp 'Remote a -> MExp 'Remote b
-  MRConst :: (S.Serialize b) => Int -> V.Key (Partition BS.ByteString) -> ChunkFun a b -> a -> MExp 'Remote b
-  MLConst :: Int -> LocalKey a -> a -> MExp 'Local a
+  MRConst :: (S.Serialize b) => Int -> V.Key (Partition BS.ByteString) -> ChunkFun a b -> IO a -> MExp 'Remote b
+  MLConst :: Int -> LocalKey a -> IO a -> MExp 'Local a
   MCollect :: (S.Serialize b) => Int -> LocalKey a -> UnChunkFun b a -> MExp 'Remote b -> MExp 'Local a
   MLApply :: Int -> LocalKey b -> MExp 'Local (a -> b) -> MExp 'Local a -> MExp 'Local b
 
