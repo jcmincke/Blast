@@ -1,9 +1,9 @@
 # Blast: Distributed Computing in Haskell
 
-*Blast:* a pure Haskell library for doing distributed computing. It has the following characteristics:
+*Blast* is a pure Haskell library for doing distributed computing. It has the following characteristics:
 
 * Works on any RPC backend. The current implementation runs on local thread and on CloudHaskell.
-* Based on 5 simple primitives, allowing the user to define his own syntax above them.
+* Is based on 5 simple primitives, allowing the user to define his own syntax above them.
 * Has a buit-in fail/safe mechanism in case of slave failure.
 * Transparently works with both stateless and stageful slaves.
 * Automatically handles slave caching.
@@ -19,8 +19,29 @@ Builds the library and the examples.
 
 ## Examples
 
-Each example can be run on 2 backend. 
-* A local backend that uses local threads
+Each example can be run on 2 backends. 
+* A local backend that uses local threads.
+* A CloudHaskell backend.
+
+To run an example on CloudHaskell:
+* Edit Main.hs and choose the right CloudHaskell main function (the one that is suffixed with CH)
+* Starts as many slaves as needed.
+
+```
+$ stack exec -- example-name slave host port
+```
+* Starts the master
+```
+$ stack exec -- example-name master host port
+```
+
+The following commands starts the KMean example with 2 slaves.
+
+```
+$ stack exec -- kmeans slave localhost 5001
+$ stack exec -- kmeans slave localhost 5002
+$ stack exec -- kmeans master localhost 5000
+```
 
 ### Simple
 
@@ -43,6 +64,7 @@ $ stack exec -- kmeans
 Counts the occurence of each character in multiple files.
 
 ```
+$ cd examples/WordCount
 $ stack exec -- wordcount
 ```
 
