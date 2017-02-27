@@ -81,35 +81,23 @@ deltaCenter centers =
   r = maximum l
   l = L.map (\(p1, p2) -> sqrt $  dist p1 p2) $ M.toList centers
 
-expGenerator :: Int -> ([Point], Double) -> LocalComputation (([Point], Double), [Point])
-expGenerator nbPoints (centers, _) = do
-      range <- rconst $ Range 0 nbPoints
-      centers0 <- lconst $ M.fromList $ L.map (\c -> (c, (p0, 0::Int))) centers
-      points <- rapply (fun (\r -> L.map (\i -> ((fromIntegral i) / fromIntegral nbPoints , (fromIntegral i) / fromIntegral nbPoints)) $ rangeToList r)) range
 
-      centerMap <- rfold' (foldFun chooseCenter) computeNewCenters centers0 points
+kmeansComputation :: [Point] -> ([Point], Double) -> LocalComputation (([Point], Double), [Point])
+kmeansComputation points (centers, _) = do
+      rpoints <- rconst $ points
+      centers0 <- lconst $ M.fromList $ L.map (\c -> (c, (p0, 0::Int))) centers
+      centerMap <- rfold' (foldFun chooseCenter) computeNewCenters centers0 rpoints
       var' <- deltaCenter <$$> centerMap
       centers' <- M.elems <$$> centerMap
       r <- (,) <$$> centers' <**> var'
       (,) <$$> r <**> centers'
 
-
-criterion :: forall t t1 t2. Double -> (t1, Double) -> (t2, Double) -> t -> Bool
-criterion tol (_, x) (_, y::Double) _ = abs (x - y) < tol
+stop :: forall t t1 t2. Double -> (t1, Double) -> (t2, Double) -> t -> Bool
+stop tol (_, x) (_, y::Double) _ = abs (x - y) < tol
 
 jobDesc :: JobDesc ([(Double, Double)], Double) [Point]
-jobDesc = MkJobDesc ([(0.0, 0.0), (1.0, 1.0)], 1000.0) (expGenerator 100) reporting (criterion 0.1)
+jobDesc = MkJobDesc ([(0.0, 0.0), (1.0, 1.0)], 1000.0) (kmeansComputation 100) reporting (stop 0.1)
 
-
---rloc :: Bool -> IO ()
---rloc statefull = do
---  let cf = defaultConfig { statefullSlaves = statefull }
---  (a,b) <- logger $ Loc.runRec 1 cf jobDesc
---  print a
---  print b
---  return ()
---  where
---  logger a = runLoggingT a (\_ _ _ _ -> return ())
 
 
 reporting :: forall t b. b -> t -> IO b
