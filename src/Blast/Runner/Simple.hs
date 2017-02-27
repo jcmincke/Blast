@@ -78,7 +78,7 @@ runRec (jobDesc@MkJobDesc {..}) = do
   !(e::Exp 'Local (a,b)) <- build refMap count program
   (a, b) <- liftIO $ runLocal e
   a' <- liftIO $ reportingAction a b
-  case shouldStop a a' b of
+  case shouldStop seed a' b of
     True -> do
       return (a', b)
     False -> do

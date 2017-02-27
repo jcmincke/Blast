@@ -46,7 +46,9 @@ module Blast.Types
   , rapply'
   , rconst'
   , rconst
+  , rconstIO
   , lconst
+  , lconstIO
   , collect'
   , collect
   , lapply

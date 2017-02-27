@@ -13,23 +13,15 @@ module Main where
 
 import qualified  Data.List as L
 import            Data.Map as M
-import            Data.Proxy
-import            Control.Monad.Operational
-import            Control.Monad.Logger
 
 import            Control.Distributed.Process (RemoteTable, Process)
 import            Control.Distributed.Process.Node (initRemoteTable)
 import            Control.Distributed.Process.Closure (mkClosure, remotable)
 import            Control.Distributed.Static (Closure)
 
-import            Data.Serialize (Serialize)
-import            System.Environment (getArgs)
-
 import            Blast
-import            Blast.Syntax
-import qualified  Blast.Runner.Simple as S
-import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH
+import            Blast.Syntax
 
 import            Common
 
@@ -114,7 +106,7 @@ jobDesc3 =
   report a c = do
     putStrLn $ "Nb of remaining ints: " ++ show c
     return a
-  stop _ a c = c==0
+  stop _ _ c = c==0
 
 
 slaveClosure3 :: Int -> Process ()
@@ -134,13 +126,13 @@ comp4 (values, m) = do
   where
   mapStrange (i, n, c) = (i, strangeConjecture n, c+1)
   removeOnes :: (M.Map Int Int) -> [(Int, Int, Int)] -> ([(Int, Int, Int)], M.Map Int Int)
-  removeOnes m l =
-    L.foldl' proc ([], m) l
+  removeOnes m' l =
+    L.foldl' proc ([], m') l
     where
-    proc (acc, m') e@(i, n, c) =
+    proc (acc, m'') e@(i, n, c) =
       if n > 1
-      then (e:acc, m')
-      else (acc, M.insert i c m')
+      then (e:acc, m'')
+      else (acc, M.insert i c m'')
 
 -- create the job, iterate until the result list is empty
 
@@ -254,6 +246,29 @@ mainLocal5 :: IO ()
 mainLocal5 = do
   (_, r)  <- runLocally True jobDesc5
   print r
+
+
+
+{-
+  Run Local:
+    simple
+
+  Run with CloudHaskell
+
+    * start slaves:
+
+        simple slave host port
+
+    * start master:
+
+        simple master host port
+
+    ex:
+      > simple slave localhost 5001
+      > simple slave localhost 5002
+      > simple master localhost 5000
+
+-}
 
 -- main and rtable
 main :: IO ()

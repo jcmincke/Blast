@@ -50,7 +50,6 @@ where
 
 --import Debug.Trace
 import            Control.Monad hiding (join)
-import            Control.Monad.IO.Class
 import            Data.Foldable
 import            Data.Hashable
 import qualified  Data.HashMap.Lazy as M

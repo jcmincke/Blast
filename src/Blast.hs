@@ -26,7 +26,9 @@ module Blast
   -- * Core syntax primitives.
   , rapply
   , rconst
+  , rconstIO
   , lconst
+  , lconstIO
   , collect
   , lapply
 

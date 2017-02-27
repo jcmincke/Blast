@@ -11,40 +11,27 @@ module Main where
 import qualified  Data.List as L
 
 import qualified  Data.Map.Strict as M
-import            Control.Monad.Logger
 
 import            Control.Distributed.Process (RemoteTable, Process)
 import            Control.Distributed.Process.Node (initRemoteTable)
 import            Control.Distributed.Process.Closure (mkClosure, remotable)
+import            Control.Distributed.Static (Closure)
 
-import            System.Environment (getArgs)
 import            Data.Conduit
 import            Data.Conduit.List as CL
 import            Data.Conduit.Binary as CB
 import            Control.Monad.Trans.Resource
 import            Blast
 import            Blast.Syntax
-import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH
 
-import qualified Data.ByteString as BS
-import Data.Word
+import qualified  Data.ByteString as BS
+import            Data.Word
+
+import            Common
 
 
 
---sa :: MonadResource m => Conduit i m BS.ByteString --ConduitM i ByteString m ()
---sa = sourceFile "./files/wordcount/f1.txt"
---
---sb :: MonadResource m => Conduit BS.ByteString m o -- ConduitM ByteString o m ()
---sb = sinkFile "./files/wordcount/f1-2.txt"
---
---sc:: MonadResource m => Conduit i m BS.ByteString -> Conduit i m BS.ByteString
---sc  a = mapOutput (\bs ->
---              let l = L.reverse $ BS.unpack bs
---              in  BS.pack l) a
---
---sd::MonadResource m => Conduit i m BS.ByteString
---sd = sc sa
 
 countChar :: M.Map Word8 Int -> BS.ByteString -> M.Map Word8 Int
 countChar m bs =
@@ -52,8 +39,6 @@ countChar m bs =
   where
   foldProc m' c = M.insertWith (+) c 1 m'
 
---createSource :: MonadResource m => FilePath -> ConduitM i BS.ByteString m ()
---createSource f = sourceFile f
 
 reduceCharMap :: M.Map Word8 Int -> M.Map Word8 Int -> M.Map Word8 Int
 reduceCharMap acc m = M.unionWith (+) acc m
@@ -82,7 +67,6 @@ expGenerator nbFiles () = do
 jobDesc :: JobDesc () (M.Map Word8 Int)
 jobDesc = MkJobDesc () (expGenerator 8) noReporting noIteration
 
-
 slaveClosure :: Int -> Process ()
 slaveClosure = CH.slaveProcess rpcConfigAction jobDesc
 
@@ -102,36 +86,39 @@ rtable = __remoteTable initRemoteTable
 
 -- main functions, choose the one you want to run.
 
-mainCH1 :: IO ()
-mainCH1 = runCloudHaskell rtable jobDesc1 chClosure1
+mainCH :: IO ()
+mainCH = runCloudHaskell rtable jobDesc chClosure
 
-mainLocal1 :: IO ()
-mainLocal1 = do
-  (_, r) <- runLocally True jobDesc1
+mainLocal :: IO ()
+mainLocal = do
+  (_, r) <- runLocally True jobDesc
   print r
 
 
--- create remotables
-remotable ['slaveClosure]
+{-
 
+  cd examples/WordCount
 
-chClosure :: Int -> Closure (Process ())
-chClosure = $(mkClosure 'slaveClosure)
+  Run Local:
+    wordcount
 
+  Run with CloudHaskell
 
-rtable :: RemoteTable
-rtable = __remoteTable initRemoteTable
+    * start slaves:
 
-ch :: IO ()
-ch = do
-  args <- getArgs
-  rpcConfig <- rpcConfigAction
-  CH.runRec rtable rpcConfig args jobDesc $(mkClosure 'slaveClosure) k
-  where
-  k _ _ = do
-    print "=========="
+        wordcount slave host port
+
+    * start master:
+
+        wordcount master host port
+
+    ex:
+      > wordcount slave localhost 5001
+      > wordcount slave localhost 5002
+      > wordcount master localhost 5000
+
+-}
 
 main :: IO ()
-main = ch
-
+main = mainCH
 
