@@ -11,21 +11,15 @@
 
 module Common where
 
-import            Data.Proxy
-import            Control.Monad.Operational
 import            Control.Monad.Logger
 
 import            Control.Distributed.Process (RemoteTable, Process)
-import            Control.Distributed.Process.Node (initRemoteTable)
 import            Control.Distributed.Static (Closure)
-import            Control.Distributed.Process.Closure (mkClosure, remotable)
 
 import            Data.Serialize (Serialize)
 import            System.Environment (getArgs)
 
 import            Blast
-import            Blast.Syntax
-import qualified  Blast.Runner.Simple as S
 import            Blast.Runner.Local as Loc
 import            Blast.Runner.CloudHaskell as CH
 
