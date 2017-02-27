@@ -2,10 +2,10 @@
 
 **Blast** is a pure Haskell library for doing distributed computing. It has the following characteristics:
 
-* Works on any RPC backend. The current implementation runs on local thread and on CloudHaskell.
+* Works on any RPC backend. The current implementation runs on both local threads and CloudHaskell.
 * Is based on 5 simple primitives, allowing the user to define his own syntax above them.
 * Has a buit-in fail/safe mechanism in case of slave failure.
-* Transparently works with both stateless and stageful slaves.
+* Transparently works with both stateless and stateful slaves.
 * Automatically handles slave caching.
 
 
