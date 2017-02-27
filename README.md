@@ -26,7 +26,7 @@ Each example can be run on 2 backends:
 
 To run an example on CloudHaskell:
 
-* Edit Main.hs and choose the right CloudHaskell main function (the one that is suffixed with CH)
+* Edit `Main.hs` and choose the right CloudHaskell main function (the one that is suffixed with CH)
 * Starts as many slaves as needed.
 
 ```
@@ -53,7 +53,7 @@ A set a simple examples illustrating remote mapping and folding as well as an it
 $ stack exec -- simple
 ```
 
-### Kmeans
+### KMeans
 
 Implementation of the distributed KMean algorithm.
 
