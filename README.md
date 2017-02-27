@@ -20,10 +20,12 @@ Builds the library and the examples.
 ## Examples
 
 Each example can be run on 2 backends: 
+
 * A local backend that uses local threads.
 * A CloudHaskell backend.
 
 To run an example on CloudHaskell:
+
 * Edit Main.hs and choose the right CloudHaskell main function (the one that is suffixed with CH)
 * Starts as many slaves as needed.
 
