@@ -26,18 +26,18 @@ Each example can be run on 2 backends:
 
 To run an example on CloudHaskell:
 
-* Edit `Main.hs` and choose the right CloudHaskell main function (the one that is suffixed with CH)
+* Edit `Main.hs` and choose the right CloudHaskell main function (the one that is suffixed with CH).
 * Starts as many slaves as needed.
 
 ```
 $ stack exec -- example-name slave host port
 ```
-* Starts the master
+* Starts the master.
 ```
 $ stack exec -- example-name master host port
 ```
 
-The following commands starts the KMean example with 2 slaves.
+I.E. The following commands starts the KMean example with 2 slaves.
 
 ```
 $ stack exec -- kmeans slave localhost 5001
