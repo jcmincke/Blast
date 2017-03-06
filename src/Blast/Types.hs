@@ -357,8 +357,6 @@ instance {-# OVERLAPPABLE #-} UnChunkable [a] [a] where
 
 
 
-
-
 -- | Creates a closure from a pure function.
 fun :: (a -> b) -> Fun e a b
 fun f = Pure (return . f)
