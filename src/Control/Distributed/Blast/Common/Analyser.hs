@@ -13,7 +13,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Blast.Common.Analyser
+module Control.Distributed.Blast.Common.Analyser
 (
   CachedValType (..)
   , RemoteClosureResult (..)
@@ -36,7 +36,7 @@ import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
 import            GHC.Generics (Generic)
 
-import            Blast.Types
+import            Control.Distributed.Blast.Types
 
 
 data CachedValType = CachedArg | CachedFreeVar

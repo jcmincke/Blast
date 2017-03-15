@@ -19,9 +19,9 @@ import            Control.Distributed.Process.Node (initRemoteTable)
 import            Control.Distributed.Process.Closure (mkClosure, remotable)
 import            Control.Distributed.Static (Closure)
 
-import            Blast
-import            Blast.Runner.CloudHaskell as CH
-import            Blast.Syntax
+import            Control.Distributed.Blast
+import            Control.Distributed.Blast.Runner.CloudHaskell as CH
+import            Control.Distributed.Blast.Syntax
 
 import            Common
 

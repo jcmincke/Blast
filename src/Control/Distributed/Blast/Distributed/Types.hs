@@ -16,7 +16,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE TemplateHaskell #-}
 
 
-module Blast.Distributed.Types
+module Control.Distributed.Blast.Distributed.Types
 (
   CommandClass (..)
   , SlaveRequest (..)
@@ -35,7 +35,7 @@ import qualified  Data.Serialize as S
 
 import            GHC.Generics (Generic)
 
-import            Blast.Common.Analyser
+import            Control.Distributed.Blast.Common.Analyser
 
 
 type RemoteClosureIndex = Int

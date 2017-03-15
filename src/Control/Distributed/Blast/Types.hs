@@ -23,7 +23,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE UndecidableInstances #-}
 
 
-module Blast.Types
+module Control.Distributed.Blast.Types
 (
   Computation
   , LocalComputation

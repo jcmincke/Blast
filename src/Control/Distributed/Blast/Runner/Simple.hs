@@ -21,7 +21,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE TemplateHaskell #-}
 
 
-module Blast.Runner.Simple
+module Control.Distributed.Blast.Runner.Simple
 (
   runRec
 )
@@ -33,7 +33,7 @@ import            Control.Monad.Logger
 import qualified  Data.Map as M
 import qualified  Data.Vector as Vc
 
-import            Blast.Types
+import            Control.Distributed.Blast.Types
 
 data Exp (k::Kind) a where
   RApply :: Int -> ExpClosure Exp a b -> Exp 'Remote a -> Exp 'Remote b

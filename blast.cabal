@@ -10,27 +10,35 @@ maintainer:          jeanchristophe.mincke@gmail.com
 copyright:           2016-2017 Jean-Christophe Mincke
 category:            Distributed computing
 build-type:          Simple
--- extra-source-files:
+
 cabal-version:       >=1.10
+
+-- extra-source-files:
+
+source-repository head
+  type: git
+  location: http://github.com/jcmincke/Blast.git
+
 
 library
   hs-source-dirs:      src
   exposed-modules:
-    Blast
-    Blast.Syntax
-    Blast.Runner.CloudHaskell
-    Blast.Runner.Local
-    Blast.Runner.Simple
-    Blast.Distributed.Interface
+    Control.Distributed.Blast
+    Control.Distributed.Blast.Syntax
+    Control.Distributed.Blast.Runner.CloudHaskell
+    Control.Distributed.Blast.Runner.Local
+    Control.Distributed.Blast.Runner.Simple
+    Control.Distributed.Blast.Distributed.Interface
   other-modules:
-    Blast.Common.Analyser
-    Blast.Distributed.Master
-    Blast.Distributed.Slave
-    Blast.Distributed.Types
-    Blast.Master.Analyser
-    Blast.Slave.Analyser
-    Blast.Types
-  build-depends:       base >= 4.7 && < 5
+    Control.Distributed.Blast.Common.Analyser
+    Control.Distributed.Blast.Distributed.Master
+    Control.Distributed.Blast.Distributed.Slave
+    Control.Distributed.Blast.Distributed.Types
+    Control.Distributed.Blast.Master.Analyser
+    Control.Distributed.Blast.Slave.Analyser
+    Control.Distributed.Blast.Types
+  build-depends:
+    base >= 4.7 && < 5
     , async
     , binary
     , bytestring

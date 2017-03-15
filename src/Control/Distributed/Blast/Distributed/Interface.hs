@@ -12,7 +12,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Blast.Distributed.Interface
+module Control.Distributed.Blast.Distributed.Interface
 (
   -- * Types
   SlaveContext
@@ -44,11 +44,11 @@ import qualified  Data.Serialize as S
 import qualified  Data.Vault.Strict as V
 
 
-import            Blast.Distributed.Master (runLocal)
-import            Blast.Distributed.Slave
-import            Blast.Distributed.Types (resetCommand, CommandClass (..), SlaveRequest(..), SlaveResponse(..))
-import            Blast.Master.Analyser (analyseLocal)
-import            Blast.Types
+import            Control.Distributed.Blast.Distributed.Master (runLocal)
+import            Control.Distributed.Blast.Distributed.Slave
+import            Control.Distributed.Blast.Distributed.Types (resetCommand, CommandClass (..), SlaveRequest(..), SlaveResponse(..))
+import            Control.Distributed.Blast.Master.Analyser (analyseLocal)
+import            Control.Distributed.Blast.Types
 
 -- | Executes a computation on the master node using the given instance of the "CommandClass" to delegate work to the slaves.
 runComputation :: (S.Serialize a, CommandClass s a, MonadLoggerIO m)

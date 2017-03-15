@@ -24,7 +24,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 
 
-module Blast.Runner.CloudHaskell
+module Control.Distributed.Blast.Runner.CloudHaskell
 (
   slaveProcess
   , runRec
@@ -56,8 +56,8 @@ import            Data.Typeable
 
 import            GHC.Generics (Generic)
 
-import            Blast
-import            Blast.Distributed.Interface
+import            Control.Distributed.Blast
+import            Control.Distributed.Blast.Distributed.Interface
 
 
 -- | General configuration.

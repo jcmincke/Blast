@@ -18,7 +18,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Blast.Master.Analyser
+module Control.Distributed.Blast.Master.Analyser
 (
   MExp (..)
   , InfoMap
@@ -41,8 +41,8 @@ import qualified  Data.Serialize as S
 import qualified  Data.Text as T
 import qualified  Data.Vault.Strict as V
 
-import            Blast.Types
-import            Blast.Common.Analyser
+import            Control.Distributed.Blast.Types
+import            Control.Distributed.Blast.Common.Analyser
 
 type InfoMap = GenericInfoMap ()
 

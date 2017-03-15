@@ -32,12 +32,12 @@ import            Test.QuickCheck.Monadic
 import            Test.QuickCheck.Random
 import            Test.QuickCheck.Gen
 
-import            Blast as S
-import            Blast.Runner.Local as Loc
-import            Blast.Runner.Simple as S
-import            Blast.Syntax as S
+import            Control.Distributed.Blast as S
+import            Control.Distributed.Blast.Runner.Local as Loc
+import            Control.Distributed.Blast.Runner.Simple as S
+import            Control.Distributed.Blast.Syntax as S
 
-import            Blast.Distributed.Interface as I
+import            Control.Distributed.Blast.Distributed.Interface as I
 
 
 

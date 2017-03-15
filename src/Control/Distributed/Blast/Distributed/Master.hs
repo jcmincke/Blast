@@ -18,7 +18,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 
-module Blast.Distributed.Master
+module Control.Distributed.Blast.Distributed.Master
 (
   runLocal
 )
@@ -40,10 +40,10 @@ import qualified  Data.Set as S
 import qualified  Data.Vault.Strict as V
 import qualified  Data.Vector as Vc
 
-import Blast.Types
-import Blast.Distributed.Types
-import Blast.Common.Analyser
-import Blast.Master.Analyser
+import            Control.Distributed.Blast.Types
+import            Control.Distributed.Blast.Distributed.Types
+import            Control.Distributed.Blast.Common.Analyser
+import            Control.Distributed.Blast.Master.Analyser
 
 toData :: Maybe a -> Data a
 toData (Just a) = Data a

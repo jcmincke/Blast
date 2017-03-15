@@ -20,7 +20,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Blast.Syntax
+module Control.Distributed.Blast.Syntax
 (
   -- * Specialized syntax primitives.
   rmap
@@ -62,7 +62,7 @@ import qualified  Data.Serialize as S
 import            GHC.Generics (Generic)
 
 
-import            Blast.Types
+import            Control.Distributed.Blast.Types
 
 class Joinable a b where
   join :: a -> b -> Maybe (a, b)

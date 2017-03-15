@@ -20,7 +20,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE TemplateHaskell #-}
 
 
-module Blast.Distributed.Slave
+module Control.Distributed.Blast.Distributed.Slave
 (
   SlaveContext (..)
   , runCommand
@@ -40,10 +40,10 @@ import qualified  Data.Serialize as S
 import qualified  Data.Vault.Strict as V
 
 
-import Blast.Types
-import Blast.Distributed.Types
-import Blast.Common.Analyser
-import Blast.Slave.Analyser
+import            Control.Distributed.Blast.Types
+import            Control.Distributed.Blast.Distributed.Types
+import            Control.Distributed.Blast.Common.Analyser
+import            Control.Distributed.Blast.Slave.Analyser
 
 
 

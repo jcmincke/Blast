@@ -8,25 +8,25 @@
 module Main where
 
 --import Debug.Trace
-import qualified  Data.List as L
-
-import qualified  Data.Map.Strict as M
-
 import            Control.Distributed.Process (RemoteTable, Process)
 import            Control.Distributed.Process.Node (initRemoteTable)
 import            Control.Distributed.Process.Closure (mkClosure, remotable)
 import            Control.Distributed.Static (Closure)
-
-import            Data.Conduit
-import            Data.Conduit.List as CL
-import            Data.Conduit.Binary as CB
 import            Control.Monad.Trans.Resource
-import            Blast
-import            Blast.Syntax
-import            Blast.Runner.CloudHaskell as CH
 
 import qualified  Data.ByteString as BS
+import            Data.Conduit
+import            Data.Conduit.Binary as CB
+import            Data.Conduit.List as CL
+import qualified  Data.List as L
+import qualified  Data.Map.Strict as M
 import            Data.Word
+
+
+import            Control.Distributed.Blast
+import            Control.Distributed.Blast.Syntax
+import            Control.Distributed.Blast.Runner.CloudHaskell as CH
+
 
 import            Common
 

@@ -21,7 +21,7 @@ file, You can obtain one at http://mozilla.org/MPL/2.0/.
 {-# LANGUAGE TemplateHaskell #-}
 
 
-module Blast.Runner.Local
+module Control.Distributed.Blast.Runner.Local
 (
   runRec
 )
@@ -40,8 +40,8 @@ import qualified  Data.Serialize as S
 
 import            System.Random
 
-import            Blast
-import            Blast.Distributed.Interface
+import            Control.Distributed.Blast
+import            Control.Distributed.Blast.Distributed.Interface
 
 
 

@@ -18,8 +18,8 @@ import            Test.Framework.Providers.QuickCheck2 (testProperty)
 import            Test.QuickCheck
 import            Test.QuickCheck.Arbitrary
 
-import            Blast
-import            Blast.Syntax
+import            Control.Distributed.Blast
+import            Control.Distributed.Blast.Syntax
 
 tests = [
    testProperty "testRangeProp" testRangeProp

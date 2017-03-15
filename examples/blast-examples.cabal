@@ -18,7 +18,8 @@ executable simple
   hs-source-dirs:      .
   main-is:             Simple/Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N  -Wall
-  build-depends:       base
+  build-depends:
+    base >= 4.7 && < 5
     , cereal
     , containers
     , deepseq
@@ -39,7 +40,8 @@ executable kmeans
   hs-source-dirs:      .
   main-is:             KMeans/Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N  -Wall
-  build-depends:       base
+  build-depends:
+    base >= 4.7 && < 5
     , cereal
     , containers
     , deepseq
@@ -61,7 +63,8 @@ executable wordcount
   hs-source-dirs:      .
   main-is:             WordCount/Main.hs
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N -Wall
-  build-depends:       base
+  build-depends:
+    base >= 4.7 && < 5
     , bytestring
     , cereal
     , conduit

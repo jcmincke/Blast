@@ -19,9 +19,9 @@ import            Control.Distributed.Static (Closure)
 import            Data.Serialize (Serialize)
 import            System.Environment (getArgs)
 
-import            Blast
-import            Blast.Runner.Local as Loc
-import            Blast.Runner.CloudHaskell as CH
+import            Control.Distributed.Blast
+import            Control.Distributed.Blast.Runner.Local as Loc
+import            Control.Distributed.Blast.Runner.CloudHaskell as CH
 
 
 -- a slow implementation of Fibonnacci

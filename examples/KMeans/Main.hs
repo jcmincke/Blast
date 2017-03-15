@@ -21,9 +21,9 @@ import            Control.Distributed.Static (Closure)
 
 import            System.Random
 
-import            Blast
-import            Blast.Runner.CloudHaskell as CH
-import            Blast.Syntax
+import            Control.Distributed.Blast
+import            Control.Distributed.Blast.Runner.CloudHaskell as CH
+import            Control.Distributed.Blast.Syntax
 
 import            Common
 
