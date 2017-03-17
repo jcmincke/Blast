@@ -53,7 +53,7 @@ import            Control.Distributed.Blast.Types
 -- | Executes a computation on the master node using the given instance of the "CommandClass" to delegate work to the slaves.
 runComputation :: (S.Serialize a, CommandClass s a, MonadLoggerIO m)
   => Config               -- ^ Configuration.
-  -> s a                  -- ^ Instance a "CommandClass".
+  -> s a                  -- ^ Instance of a "CommandClass".
   -> JobDesc a b          -- ^ Job description.
   -> m (a, b)             -- ^ Result : new value of the seed and the computation output.
 runComputation (MkConfig {..}) s (MkJobDesc {..}) = do

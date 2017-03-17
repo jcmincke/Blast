@@ -29,11 +29,11 @@ library
     Control.Distributed.Blast.Runner.Local
     Control.Distributed.Blast.Runner.Simple
     Control.Distributed.Blast.Distributed.Interface
+    Control.Distributed.Blast.Distributed.Types
   other-modules:
     Control.Distributed.Blast.Common.Analyser
     Control.Distributed.Blast.Distributed.Master
     Control.Distributed.Blast.Distributed.Slave
-    Control.Distributed.Blast.Distributed.Types
     Control.Distributed.Blast.Master.Analyser
     Control.Distributed.Blast.Slave.Analyser
     Control.Distributed.Blast.Types
