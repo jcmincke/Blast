@@ -41,7 +41,6 @@ import            Control.Distributed.Blast.Common.Analyser
 type RemoteClosureIndex = Int
 
 
-
 -- | The list of primitives for master-slave communication.
 class (S.Serialize x) => CommandClass s x where
   -- | True if slaves are statefull.
