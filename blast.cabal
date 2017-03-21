@@ -1,7 +1,7 @@
 name:                blast
 version:             0.1.1.0
 synopsis:            A distributed computing library
-description:         Please see README.md
+description:         Blast is a library for doing Apache Spark like distributed computing.
 homepage:            https://github.com/githubuser/blast#readme
 license:             MPL-2.0
 license-file:        LICENSE

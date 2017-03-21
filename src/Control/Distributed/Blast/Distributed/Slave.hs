@@ -49,7 +49,7 @@ import            Control.Distributed.Blast.Slave.Analyser
 
 -- | Describes the current context of a slave.
 data SlaveContext m a b = MkSlaveContext {
-  localSlaveId :: Int
+  localSlaveId :: Int  -- todo maybe not useful
   , infos :: InfoMap
   , vault :: V.Vault
   , expGen :: a -> ProgramT (Syntax m) m (SExp 'Local (a, b))
