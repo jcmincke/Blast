@@ -93,6 +93,23 @@ handleSlaveErrorM :: (Monad m) => SlaveResponse -> m SlaveResponse
 handleSlaveErrorM (LsRespError err) = error ("Error in Slave: "++err)
 handleSlaveErrorM r = return r
 
+
+
+runAndFetchRemoteOneSlaveStatefull ::(CommandClass s x, MonadIO m, S.Serialize a) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m (Maybe a)
+runAndFetchRemoteOneSlaveStatefull slaveId oe@(MRApply n (ExpClosure ce _) e) = do
+  runRemoteOneSlaveStatefull slaveId oe
+  fetchRes <- fetchOneSlaveResults slaveId oe
+  case fetchRes of
+    Just (Data a) -> return $ Just a
+    Just (NoData) -> return $ Nothing
+    Nothing ->
+      -- We a fectch miss. Redo the remote computation
+      -- Risk of infinite recursion: not really because a fetch miss
+      -- is due to (temporary) slave failure.
+      -- If the slave cannot never be reached gain, the backend will raise an specific error
+      runAndFetchRemoteOneSlaveStatefull slaveId oe
+
+
 runRemoteOneSlaveStatefull ::(CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
 runRemoteOneSlaveStatefull slaveId oe@(MRApply n (ExpClosure ce _) e) = do
   s <- getRemote
@@ -165,7 +182,7 @@ runRemoteOneSlaveStateless slaveId requests (MRConst n key _ _) = do
 
 fetchOneSlaveResults :: forall a s x m.
   (S.Serialize a, CommandClass s x, MonadIO m)
-  => Int -> MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m (Maybe a)
+  => Int -> MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m (Maybe (Data a))
 fetchOneSlaveResults slaveId e = do
   s <- getRemote
   let n = getRemoteIndex e
@@ -174,21 +191,40 @@ fetchOneSlaveResults slaveId e = do
   case handleRpcError rE of
     LsRespFetch (Data bs) ->
       case S.decode bs of
-        Right v -> return $ Just v
+        Right v -> return $ Just (Data v)
         Left err -> error ("Cannot decode fetched value: " ++ err)
-    LsRespFetch NoData -> return Nothing
+    LsRespFetch NoData -> return $ Just NoData
+    LsRespFetchMiss -> return Nothing
     LsRespError err -> error ("Cannot fetch results for node: "++ err)
     _ -> error ( "Should not reach here")
 
-fetchResults :: (S.Serialize b, MonadIO m, CommandClass s x) =>
-  UnChunkFun b a ->  MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
-fetchResults unChunkFun e = do
-  s <- getRemote
-  let nbSlaves = getNbSlaves s
-  let slaveIds = [0 .. nbSlaves - 1]
-  st <- get
-  r <- liftIO $ mapConcurrently (\slaveId -> evalStateT (fetchOneSlaveResults slaveId e) st) slaveIds
-  return $ unChunkFun $ catMaybes r
+--fetchOneSlaveResults :: forall a s x m.
+--  (S.Serialize a, CommandClass s x, MonadIO m)
+--  => Int -> MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m (Maybe a)
+--fetchOneSlaveResults slaveId e = do
+--  s <- getRemote
+--  let n = getRemoteIndex e
+--  let req = LsReqFetch n
+--  rE <- liftIO $ send s slaveId req
+--  case handleRpcError rE of
+--    LsRespFetch (Data bs) ->
+--      case S.decode bs of
+--        Right v -> return $ Just v
+--        Left err -> error ("Cannot decode fetched value: " ++ err)
+--    LsRespFetch NoData -> return Nothing
+--    LsRespError err -> error ("Cannot fetch results for node: "++ err)
+--    _ -> error ( "Should not reach here")
+
+
+--fetchResults :: (S.Serialize b, MonadIO m, CommandClass s x) =>
+--  UnChunkFun b a ->  MExp 'Remote b -> StateT (s x, V.Vault, InfoMap) m a
+--fetchResults unChunkFun e = do
+--  s <- getRemote
+--  let nbSlaves = getNbSlaves s
+--  let slaveIds = [0 .. nbSlaves - 1]
+--  st <- get
+--  r <- liftIO $ mapConcurrently (\slaveId -> evalStateT (fetchOneSlaveResults slaveId e) st) slaveIds
+--  return $ unChunkFun $ catMaybes r
 
 
 unCacheRemoteOneSlave :: (CommandClass s x, MonadIO m) => Int -> MExp 'Remote a -> StateT (s x , V.Vault, InfoMap) m ()
@@ -236,12 +272,14 @@ runRemote unChunkFun e = do
   s <- getRemote
   case isStatefullSlave s of
     True -> do
-      doRunRemoteStatefull e
-      fetchResults unChunkFun e
+      doRunAndFetchRemoteStatefull unChunkFun e
     False -> doRunRemoteStateless unChunkFun e
 
-doRunRemoteStatefull ::(CommandClass s x, MonadLoggerIO m) => MExp 'Remote a -> StateT (s x, V.Vault, InfoMap) m ()
-doRunRemoteStatefull oe@(MRApply n (ExpClosure ce _) e) = do
+doRunAndFetchRemoteStatefull ::(CommandClass s x, MonadLoggerIO m, S.Serialize b) =>
+  UnChunkFun b a
+  -> MExp 'Remote b
+  -> StateT (s x, V.Vault, InfoMap) m a
+doRunAndFetchRemoteStatefull unChunkFun oe@(MRApply n (ExpClosure ce _) e) = do
   s <- getRemote
   doRunRemoteStatefull e
   cp <- runLocal ce
@@ -256,7 +294,7 @@ doRunRemoteStatefull oe@(MRApply n (ExpClosure ce _) e) = do
   let nbSlaves = getNbSlaves s
   let slaveIds = [0 .. nbSlaves - 1]
   st <- get
-  _ <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runRemoteOneSlaveStatefull slaveId oe) st) slaveIds
+  r <- liftIO $ mapConcurrently (\slaveId -> evalStateT (runAndFetchRemoteOneSlaveStatefull slaveId oe) st) slaveIds
 
   -- dereference children and cleanup remote cache if necessary
   cleanupCacheE <- dereference n (getRemoteIndex e)
@@ -264,9 +302,11 @@ doRunRemoteStatefull oe@(MRApply n (ExpClosure ce _) e) = do
 
   cleanupCacheCe <- dereference n (getLocalIndex ce)
   when cleanupCacheCe $ do unCacheLocal ce
-  return ()
+  return $ unChunkFun $ catMaybes r
 
-
+doRunRemoteStatefull ::(CommandClass s x, MonadLoggerIO m) =>
+  MExp 'Remote a
+  -> StateT (s x, V.Vault, InfoMap) m ()
 doRunRemoteStatefull e@(MRConst _ key chunkFun aio) = do
   a <- liftIO aio
   s <- getRemote

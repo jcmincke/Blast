@@ -76,6 +76,7 @@ instance Show SlaveRequest where
 data SlaveResponse =
   LsRespVoid
   |LsRespFetch (Data BS.ByteString)
+  |LsRespFetchMiss
   |LsRespExecute RemoteClosureResult
   |LsRespBatch (Data BS.ByteString)
   |LsRespError String

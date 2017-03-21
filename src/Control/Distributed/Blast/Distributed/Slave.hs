@@ -121,11 +121,11 @@ runCommand (LsReqFetch i) ls = do
       Just (GenericInfo _ (NtRMap (MkRMapInfo _ _ (Just cacheReaderFun)))) -> do
         case cacheReaderFun (vault ls) of
           Just a -> return (LsRespFetch a, ls)
-          Nothing -> return (LsRespError "Cannot fetch results", ls)
+          Nothing -> return (LsRespFetchMiss, ls)
       Just (GenericInfo _ (NtRConst (MkRConstInfo _ _ (Just cacheReaderFun)))) -> do
         case cacheReaderFun (vault ls) of
           Just a -> return (LsRespFetch a, ls)
-          Nothing -> return (LsRespError "Cannot fetch results", ls)
+          Nothing -> return (LsRespFetchMiss , ls)
       _ -> return $ (LsRespError "Cannot fetch results", ls)
 runCommand (LsReqBatch nRes requests) ls = do
   ls' <- foldM (\acc req -> do  (_, acc') <- runCommand req acc
@@ -134,6 +134,7 @@ runCommand (LsReqBatch nRes requests) ls = do
   (res, ls'') <- runCommand (LsReqFetch nRes) ls'
   case res of
     LsRespFetch r -> return $ (LsRespBatch r, ls'')
+    LsRespFetchMiss -> return $ (LsRespError "Fetch miss in Batch", ls'')
     LsRespError err -> return $ (LsRespError err, ls'')
     _ -> return $ (LsRespError "Batch: bad response", ls'')
 

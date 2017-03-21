@@ -319,7 +319,7 @@ data JobDesc a b = MkJobDesc {
 
 data Config = MkConfig
   {
-    slaveAvailability :: Float    -- ^ Probability of slave failure. Used in testing.
+    slaveAvailability :: Float      -- ^ Probability of slave failure. Used in testing.
     , statefullSlaves :: Bool       -- ^ True turns on the statefull slave mode. Slaves are stateless if False.
   }
 
