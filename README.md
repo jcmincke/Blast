@@ -1,5 +1,7 @@
 # Blast: Distributed Computing in Haskell
 
+[![Build Status](https://travis-ci.org/jcmincke/Blast.svg?branch=master)](https://travis-ci.org/jcmincke/Blast)
+
 **Blast** is a pure Haskell library for doing distributed computing. It has the following characteristics:
 
 * Works on any RPC backend. The current implementation runs on both local threads and CloudHaskell.
@@ -19,7 +21,7 @@ Builds the library and the examples.
 
 ## Examples
 
-Each example can be run on 2 backends: 
+Each example can be run on 2 backends:
 
 * A local backend that uses local threads.
 * A CloudHaskell backend.
